@@ -1,71 +1,28 @@
 import { Router } from 'express';
 import { conversationController } from '../controllers/conversation.controller';
-import { validate } from '../middleware/validator';
+import { authenticate } from '../middleware/auth.middleware';
+import { validateRequest } from '../middleware/validation.middleware';
 import {
   createConversationSchema,
   updateConversationSchema,
-  conversationParamsSchema,
-  listConversationsSchema,
   createMessageSchema,
   getMessagesSchema,
 } from '../validators/conversation.validator';
-import { authenticate } from '../middleware/auth';
-import { apiRateLimiter, messageRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
-// All conversation routes require authentication
+// All routes require authentication
 router.use(authenticate);
 
-// Conversations
-router.post(
-  '/',
-  apiRateLimiter,
-  validate(createConversationSchema),
-  conversationController.createConversation
-);
+// Conversation routes
+router.post('/', validateRequest(createConversationSchema), conversationController.create);
+router.get('/', conversationController.list);
+router.get('/:id', conversationController.get);
+router.patch('/:id', validateRequest(updateConversationSchema), conversationController.update);
+router.delete('/:id', conversationController.delete);
 
-router.get(
-  '/',
-  apiRateLimiter,
-  validate(listConversationsSchema),
-  conversationController.listConversations
-);
-
-router.get(
-  '/:conversationId',
-  apiRateLimiter,
-  validate(conversationParamsSchema),
-  conversationController.getConversation
-);
-
-router.patch(
-  '/:conversationId',
-  apiRateLimiter,
-  validate(updateConversationSchema),
-  conversationController.updateConversation
-);
-
-router.delete(
-  '/:conversationId',
-  apiRateLimiter,
-  validate(conversationParamsSchema),
-  conversationController.deleteConversation
-);
-
-// Messages
-router.get(
-  '/:conversationId/messages',
-  apiRateLimiter,
-  validate(getMessagesSchema),
-  conversationController.getMessages
-);
-
-router.post(
-  '/:conversationId/messages',
-  messageRateLimiter,
-  validate(createMessageSchema),
-  conversationController.createMessage
-);
+// Message routes
+router.get('/:id/messages', validateRequest(getMessagesSchema), conversationController.getMessages);
+router.post('/:id/messages', validateRequest(createMessageSchema), conversationController.createMessage);
 
 export default router;

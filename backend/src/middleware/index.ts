@@ -1,5 +1,6 @@
-export { authenticate, authorize, AuthRequest } from './auth';
-export { validate } from './validator';
+export { authenticate, authorize, optionalAuth } from './auth.middleware';
 export { errorHandler, notFoundHandler } from './errorHandler';
-export { rateLimiter, authRateLimiter, aiRateLimiter } from './rateLimiter';
-export { metricsMiddleware } from '../utils/metrics';
+export { validateRequest } from './validation.middleware';
+export { metricsMiddleware } from './metrics';
+export { requestTimeout } from './timeout.middleware';
+export { createRateLimiter, generalRateLimiter, strictRateLimiter } from './rateLimiter.middleware';

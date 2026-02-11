@@ -1,19 +1,27 @@
 import { Router } from 'express';
 import { userController } from '../controllers/user.controller';
-import { validate } from '../middleware/validator';
-import { updateProfileSchema } from '../validators/user.validator';
-import { authenticate } from '../middleware/auth';
-import { apiRateLimiter } from '../middleware/rateLimiter';
+import { authenticate, authorize } from '../middleware/auth.middleware';
+import { validateRequest } from '../middleware/validation.middleware';
+import { updateUserSchema } from '../validators/user.validator';
 
 const router = Router();
 
-// All user routes require authentication
+// All routes require authentication
 router.use(authenticate);
-router.use(apiRateLimiter);
 
-router.get('/profile', userController.getProfile);
-router.patch('/profile', validate(updateProfileSchema), userController.updateProfile);
-router.get('/stats', userController.getStats);
-router.delete('/account', userController.deleteAccount);
+// Get current user profile
+router.get('/me', userController.getMe);
+
+// Update current user profile
+router.patch('/me', validateRequest(updateUserSchema), userController.updateMe);
+
+// Get user stats
+router.get('/me/stats', userController.getStats);
+
+// Admin only routes
+router.get('/', authorize('admin'), userController.listUsers);
+router.get('/:id', authorize('admin'), userController.getUser);
+router.patch('/:id', authorize('admin'), validateRequest(updateUserSchema), userController.updateUser);
+router.delete('/:id', authorize('admin'), userController.deleteUser);
 
 export default router;
