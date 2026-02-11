@@ -1,113 +1,109 @@
-import { Response, NextFunction } from 'express';
+import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { conversationService } from '../services/conversation.service';
-import { aiService } from '../services/ai.service';
-import logger from '../utils/logger';
+import { asyncHandler } from '../middleware/errorHandler';
 
 export class ConversationController {
-  async create(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const { title, initialMessage, provider, model } = req.body;
-      
-      const result = await conversationService.createConversation(
-        userId,
-        title,
-        initialMessage,
-        provider,
-        model
-      );
+  createConversation = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { title } = req.body;
 
-      res.status(201).json({
-        status: 'success',
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const conversation = await conversationService.createConversation(userId, title);
 
-  async list(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const { limit, offset, archived } = req.query;
-      
-      const result = await conversationService.getConversations(userId, {
-        limit: limit ? Number(limit) : undefined,
-        offset: offset ? Number(offset) : undefined,
-        archived: archived === 'true',
-      });
+    res.status(201).json({
+      success: true,
+      data: { conversation },
+    });
+  });
 
-      res.json({
-        status: 'success',
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+  getConversation = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { conversationId } = req.params;
 
-  async getOne(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const conversationId = req.params.id;
-      
-      const result = await conversationService.getConversation(conversationId, userId);
+    const conversation = await conversationService.getConversation(conversationId, userId);
 
-      res.json({
-        status: 'success',
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      data: { conversation },
+    });
+  });
 
-  async sendMessage(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const conversationId = req.params.id;
-      const { content } = req.body;
-      
-      const result = await conversationService.sendMessage(conversationId, userId, content);
+  listConversations = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { includeArchived, limit, offset } = req.query;
 
-      res.json({
-        status: 'success',
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const result = await conversationService.listConversations(userId, {
+      includeArchived: includeArchived as boolean | undefined,
+      limit: limit as number | undefined,
+      offset: offset as number | undefined,
+    });
 
-  async delete(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const conversationId = req.params.id;
-      
-      await conversationService.deleteConversation(conversationId, userId);
+    res.json({
+      success: true,
+      data: result,
+    });
+  });
 
-      res.json({
-        status: 'success',
-        message: 'Conversation deleted successfully',
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+  updateConversation = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { conversationId } = req.params;
+    const { title, isArchived } = req.body;
 
-  async getProviders(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const providers = aiService.getAvailableProviders();
+    const conversation = await conversationService.updateConversation(
+      conversationId,
+      userId,
+      { title, isArchived }
+    );
 
-      res.json({
-        status: 'success',
-        data: { providers },
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      data: { conversation },
+    });
+  });
+
+  deleteConversation = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { conversationId } = req.params;
+
+    await conversationService.deleteConversation(conversationId, userId);
+
+    res.json({
+      success: true,
+      message: 'Conversation deleted successfully',
+    });
+  });
+
+  getMessages = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { conversationId } = req.params;
+    const { limit, before } = req.query;
+
+    const messages = await conversationService.getMessages(conversationId, userId, {
+      limit: limit as number | undefined,
+      before: before as string | undefined,
+    });
+
+    res.json({
+      success: true,
+      data: { messages },
+    });
+  });
+
+  createMessage = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { conversationId } = req.params;
+    const { content, model } = req.body;
+
+    const result = await conversationService.createMessage(conversationId, userId, {
+      content,
+      model,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: result,
+    });
+  });
 }
 
 export const conversationController = new ConversationController();

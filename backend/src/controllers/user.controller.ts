@@ -1,66 +1,56 @@
-import { Response, NextFunction } from 'express';
+import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { userService } from '../services/user.service';
-import logger from '../utils/logger';
+import { asyncHandler } from '../middleware/errorHandler';
 
 export class UserController {
-  async getProfile(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const user = await userService.getProfile(userId);
+  getProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
 
-      res.json({
-        status: 'success',
-        data: { user },
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const user = await userService.getUserById(userId);
 
-  async updateProfile(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const updates = req.body;
-      
-      const user = await userService.updateProfile(userId, updates);
+    res.json({
+      success: true,
+      data: { user },
+    });
+  });
 
-      res.json({
-        status: 'success',
-        data: { user },
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+  updateProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { firstName, lastName } = req.body;
 
-  async deleteAccount(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      await userService.deleteAccount(userId);
+    const user = await userService.updateProfile(userId, {
+      firstName,
+      lastName,
+    });
 
-      res.json({
-        status: 'success',
-        message: 'Account deleted successfully',
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      data: { user },
+    });
+  });
 
-  async getStats(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const stats = await userService.getUserStats(userId);
+  getStats = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
 
-      res.json({
-        status: 'success',
-        data: { stats },
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const stats = await userService.getUserStats(userId);
+
+    res.json({
+      success: true,
+      data: { stats },
+    });
+  });
+
+  deleteAccount = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+
+    await userService.deleteUser(userId);
+
+    res.json({
+      success: true,
+      message: 'Account deleted successfully',
+    });
+  });
 }
 
 export const userController = new UserController();

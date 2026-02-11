@@ -1,101 +1,77 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { authService } from '../services/auth.service';
-import logger from '../utils/logger';
+import { asyncHandler } from '../middleware/errorHandler';
 
 export class AuthController {
-  async register(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { email, password, firstName, lastName } = req.body;
-      
-      const result = await authService.register({
-        email,
-        password,
-        firstName,
-        lastName,
-      });
+  register = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { email, password, firstName, lastName } = req.body;
 
-      res.status(201).json({
-        status: 'success',
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const result = await authService.register({
+      email,
+      password,
+      firstName,
+      lastName,
+    });
 
-  async login(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { email, password } = req.body;
-      
-      const result = await authService.login(email, password);
+    res.status(201).json({
+      success: true,
+      data: result,
+    });
+  });
 
-      res.json({
-        status: 'success',
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+  login = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { email, password } = req.body;
 
-  async refreshToken(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { refreshToken } = req.body;
-      
-      const tokens = await authService.refreshTokens(refreshToken);
+    const result = await authService.login(email, password);
 
-      res.json({
-        status: 'success',
-        data: { tokens },
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.json({
+      success: true,
+      data: result,
+    });
+  });
 
-  async logout(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const token = req.headers.authorization!.substring(7);
-      
-      await authService.logout(userId, token);
+  refreshTokens = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { refreshToken } = req.body;
 
-      res.json({
-        status: 'success',
-        message: 'Logged out successfully',
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const tokens = await authService.refreshTokens(refreshToken);
 
-  async changePassword(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const userId = req.user!.id;
-      const { currentPassword, newPassword } = req.body;
-      
-      await authService.changePassword(userId, currentPassword, newPassword);
+    res.json({
+      success: true,
+      data: { tokens },
+    });
+  });
 
-      res.json({
-        status: 'success',
-        message: 'Password changed successfully',
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+  logout = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const token = req.headers.authorization!.substring(7);
 
-  async me(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      res.json({
-        status: 'success',
-        data: { user: req.user },
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    await authService.logout(userId, token);
+
+    res.json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  });
+
+  changePassword = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { currentPassword, newPassword } = req.body;
+
+    await authService.changePassword(userId, currentPassword, newPassword);
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully',
+    });
+  });
+
+  getProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
+    res.json({
+      success: true,
+      data: { user: req.user },
+    });
+  });
 }
 
 export const authController = new AuthController();
