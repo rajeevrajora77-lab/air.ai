@@ -30,16 +30,27 @@ class Database {
     });
   }
 
-  async connect(): Promise<void> {
-    try {
-      const client = await this.pool.connect();
-      await client.query('SELECT NOW()');
-      client.release();
-      this.isConnected = true;
-      logger.info('✅ Database connected successfully');
-    } catch (error) {
-      logger.error('❌ Database connection failed:', error);
-      throw new DatabaseError('Failed to connect to database');
+  async connect(retries = 5, delay = 2000): Promise<void> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const client = await this.pool.connect();
+        await client.query('SELECT NOW()');
+        client.release();
+        this.isConnected = true;
+        logger.info('✅ Database connected successfully');
+        return;
+      } catch (error) {
+        logger.error(`❌ Database connection attempt ${attempt}/${retries} failed:`, error);
+        
+        if (attempt === retries) {
+          throw new DatabaseError('Failed to connect to database after multiple retries');
+        }
+        
+        // Exponential backoff
+        const waitTime = delay * Math.pow(2, attempt - 1);
+        logger.info(`Retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
     }
   }
 
@@ -49,14 +60,22 @@ class Database {
       const result = await this.pool.query<T>(text, params);
       const duration = Date.now() - start;
       
-      if (duration > 1000) {
-        logger.warn(`Slow query detected (${duration}ms):`, { text, params });
+      // Warn on slow queries (>200ms is concerning)
+      if (duration > 200) {
+        logger.warn(`Slow query detected (${duration}ms):`, { 
+          text: text.substring(0, 100),
+          paramCount: params?.length || 0 
+        });
       }
       
-      logger.debug(`Query executed in ${duration}ms`, { text });
+      logger.debug(`Query executed in ${duration}ms`);
       return result;
     } catch (error) {
-      logger.error('Database query error:', { text, params, error });
+      logger.error('Database query error:', { 
+        text: text.substring(0, 100), 
+        paramCount: params?.length || 0,
+        error 
+      });
       throw new DatabaseError('Query execution failed');
     }
   }
@@ -79,8 +98,8 @@ class Database {
 
   async healthCheck(): Promise<boolean> {
     try {
-      await this.query('SELECT 1');
-      return true;
+      const result = await this.query('SELECT 1 as health');
+      return result.rows.length > 0;
     } catch {
       return false;
     }
