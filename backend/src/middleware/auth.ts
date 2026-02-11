@@ -17,7 +17,7 @@ export const authenticate = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-): Promise<void> => {
+) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -28,13 +28,16 @@ export const authenticate = async (
     const token = authHeader.substring(7);
 
     // Check if token is blacklisted
-    const isBlacklisted = await redis.get(`blacklist:${token}`);
+    const isBlacklisted = await redis.get<boolean>(`blacklist:${token}`);
     if (isBlacklisted) {
       throw new AuthenticationError('Token has been revoked');
     }
 
     // Verify token
-    const decoded = jwt.verify(token, config.JWT_SECRET) as {
+    const decoded = jwt.verify(token, config.JWT_SECRET, {
+      issuer: 'air-api',
+      audience: 'air-client',
+    }) as {
       id: string;
       email: string;
       role: string;
@@ -53,16 +56,51 @@ export const authenticate = async (
   }
 };
 
-export const authorize = (...roles: string[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction): void => {
+export const authorize = (...allowedRoles: string[]) => {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
-      throw new AuthenticationError('User not authenticated');
+      return next(new AuthenticationError('Authentication required'));
     }
 
-    if (!roles.includes(req.user.role)) {
-      throw new AuthorizationError(`Role '${req.user.role}' is not authorized`);
+    if (!allowedRoles.includes(req.user.role)) {
+      return next(new AuthorizationError('Insufficient permissions'));
     }
 
     next();
   };
+};
+
+export const optionalAuth = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next();
+    }
+
+    const token = authHeader.substring(7);
+
+    // Check if token is blacklisted
+    const isBlacklisted = await redis.get<boolean>(`blacklist:${token}`);
+    if (isBlacklisted) {
+      return next();
+    }
+
+    // Verify token
+    const decoded = jwt.verify(token, config.JWT_SECRET) as {
+      id: string;
+      email: string;
+      role: string;
+    };
+
+    req.user = decoded;
+    next();
+  } catch (error) {
+    // Ignore errors for optional auth
+    next();
+  }
 };

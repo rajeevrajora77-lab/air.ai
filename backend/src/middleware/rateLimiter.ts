@@ -4,56 +4,80 @@ import { RateLimitError } from '../utils/errors';
 import config from '../config';
 import logger from '../utils/logger';
 
-export interface RateLimitOptions {
-  windowMs?: number;
-  maxRequests?: number;
+interface RateLimitOptions {
+  windowMs: number;
+  maxRequests: number;
   keyGenerator?: (req: Request) => string;
   skipSuccessfulRequests?: boolean;
 }
 
-export const rateLimiter = (options: RateLimitOptions = {}) => {
-  const {
-    windowMs = config.RATE_LIMIT_WINDOW_MS,
-    maxRequests = config.RATE_LIMIT_MAX_REQUESTS,
-    keyGenerator = (req: Request) => req.ip || 'unknown',
-    skipSuccessfulRequests = false,
-  } = options;
+const defaultOptions: RateLimitOptions = {
+  windowMs: config.RATE_LIMIT_WINDOW_MS,
+  maxRequests: config.RATE_LIMIT_MAX_REQUESTS,
+  keyGenerator: (req) => {
+    const user = (req as any).user;
+    return user ? `ratelimit:user:${user.id}` : `ratelimit:ip:${req.ip}`;
+  },
+  skipSuccessfulRequests: false,
+};
 
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const rateLimiter = (options: Partial<RateLimitOptions> = {}) => {
+  const opts = { ...defaultOptions, ...options };
+
+  return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const key = `ratelimit:${keyGenerator(req)}`;
-      const current = await redis.get<number>(key) || 0;
+      const key = opts.keyGenerator!(req);
+      const windowKey = `${key}:${Math.floor(Date.now() / opts.windowMs)}`;
 
-      if (current >= maxRequests) {
+      // Get current count
+      const current = await redis.getClient().incr(windowKey);
+
+      // Set expiry on first request in window
+      if (current === 1) {
+        await redis.getClient().expire(windowKey, Math.ceil(opts.windowMs / 1000));
+      }
+
+      // Set rate limit headers
+      res.setHeader('X-RateLimit-Limit', opts.maxRequests);
+      res.setHeader('X-RateLimit-Remaining', Math.max(0, opts.maxRequests - current));
+      res.setHeader('X-RateLimit-Reset', new Date(Date.now() + opts.windowMs).toISOString());
+
+      // Check if limit exceeded
+      if (current > opts.maxRequests) {
+        logger.warn('Rate limit exceeded:', { key, current, limit: opts.maxRequests });
         throw new RateLimitError('Too many requests, please try again later');
       }
 
-      // Increment counter
-      const newCount = current + 1;
-      await redis.set(key, newCount, Math.ceil(windowMs / 1000));
-
-      // Set rate limit headers
-      res.setHeader('X-RateLimit-Limit', maxRequests);
-      res.setHeader('X-RateLimit-Remaining', maxRequests - newCount);
-      res.setHeader('X-RateLimit-Reset', Date.now() + windowMs);
-
       next();
     } catch (error) {
-      next(error);
+      if (error instanceof RateLimitError) {
+        next(error);
+      } else {
+        logger.error('Rate limiter error:', error);
+        // Continue on rate limiter errors to avoid blocking requests
+        next();
+      }
     }
   };
 };
 
-// Stricter rate limit for auth endpoints
+// Specific rate limiters
 export const authRateLimiter = rateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   maxRequests: 5,
-  keyGenerator: (req: Request) => `auth:${req.ip}`,
+  keyGenerator: (req) => `ratelimit:auth:${req.ip}`,
 });
 
-// Rate limit per user for AI requests
-export const aiRateLimiter = rateLimiter({
+export const apiRateLimiter = rateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  maxRequests: 100,
+});
+
+export const messageRateLimiter = rateLimiter({
   windowMs: 60 * 1000, // 1 minute
-  maxRequests: 20,
-  keyGenerator: (req: any) => `ai:${req.user?.id || req.ip}`,
+  maxRequests: 10,
+  keyGenerator: (req) => {
+    const user = (req as any).user;
+    return `ratelimit:messages:${user?.id || req.ip}`;
+  },
 });
