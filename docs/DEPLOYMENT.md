@@ -1,255 +1,295 @@
-# 🚀 Production Deployment Guide
+# Deployment Guide
 
-## Prerequisites
+## Quick Deploy Options
 
-- Domain name with SSL certificate
-- PostgreSQL database (AWS RDS / Railway / Supabase)
-- Redis instance (AWS ElastiCache / Railway / Upstash)
-- Server (AWS EC2 / DigitalOcean / Railway)
+### Option 1: Vercel (Frontend) + Railway (Backend) - Recommended
 
-## Option 1: Deploy to Railway (Easiest)
+**Cost:** Free tier available  
+**Time:** 15-20 minutes  
+**Difficulty:** Easy
 
-### 1. Create Railway Account
+---
 
-```bash
-npm install -g @railway/cli
-railway login
-```
+## 🚀 Frontend Deployment (Vercel)
 
-### 2. Initialize Project
+### Step 1: Prepare Frontend
 
-```bash
-railway init
-```
-
-### 3. Add PostgreSQL & Redis
-
-Go to Railway dashboard:
-- Click "New" → "Database" → "PostgreSQL"
-- Click "New" → "Database" → "Redis"
-
-### 4. Deploy Backend
-
-```bash
-cd backend
-railway up
-```
-
-### 5. Deploy Frontend to Vercel
-
-```bash
-cd frontend
-npm install -g vercel
-vercel --prod
-```
-
-## Option 2: Deploy to AWS (Production Scale)
-
-### 1. Setup RDS PostgreSQL
-
-```bash
-aws rds create-db-instance \
-  --db-instance-identifier air-db \
-  --db-instance-class db.t3.micro \
-  --engine postgres \
-  --master-username admin \
-  --master-user-password YourPassword \
-  --allocated-storage 20
-```
-
-### 2. Setup ElastiCache Redis
-
-```bash
-aws elasticache create-cache-cluster \
-  --cache-cluster-id air-redis \
-  --cache-node-type cache.t3.micro \
-  --engine redis \
-  --num-cache-nodes 1
-```
-
-### 3. Deploy with Docker Compose
-
-On your EC2 instance:
-
-```bash
-# Clone repository
-git clone https://github.com/rajeevrajora77-lab/air.ai.git
-cd air.ai
-
-# Create .env file with production values
-cp backend/.env.example backend/.env
-nano backend/.env
-
-# Start services
-docker-compose up -d
-```
-
-### 4. Setup Nginx Reverse Proxy
-
-```bash
-sudo apt install nginx
-sudo nano /etc/nginx/sites-available/air
-```
-
-```nginx
-# HTTP - redirect to HTTPS
-server {
-    listen 80;
-    server_name your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-
-# HTTPS
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
-
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-
-    # Backend API
-    location /api {
-        proxy_pass http://localhost:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # Frontend
-    location / {
-        proxy_pass http://localhost:80;
-        proxy_set_header Host $host;
-    }
+1. Ensure `frontend/package.json` has build script:
+```json
+{
+  "scripts": {
+    "build": "vite build",
+    "preview": "vite preview"
+  }
 }
 ```
 
-## Option 3: Docker Deployment (Any Server)
-
-### 1. Setup Environment
-
-```bash
-# Clone repository
-git clone https://github.com/rajeevrajora77-lab/air.ai.git
-cd air.ai
-
-# Copy and configure environment
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
-
-# Edit with your production values
-nano backend/.env
-nano frontend/.env
+2. Create `vercel.json` in frontend folder:
+```json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
+  ]
+}
 ```
 
-### 2. Generate JWT Secrets
+### Step 2: Deploy to Vercel
 
+1. Go to [vercel.com](https://vercel.com)
+2. Sign in with GitHub
+3. **Import Project** → Select `air.ai` repository
+4. **Configure:**
+   - Framework: Vite
+   - Root Directory: `frontend`
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+
+5. **Environment Variables:**
+```bash
+VITE_API_BASE_URL=https://your-backend.up.railway.app/api/v1
+```
+
+6. Click **Deploy**
+
+7. After deployment, get your URL: `https://air-ai-xyz.vercel.app`
+
+---
+
+## 🚂 Backend Deployment (Railway)
+
+### Step 1: Sign Up & Create Project
+
+1. Go to [railway.app](https://railway.app)
+2. Sign in with GitHub
+3. **New Project** → **Deploy from GitHub repo**
+4. Select `air.ai` repository
+
+### Step 2: Add PostgreSQL Database
+
+1. In your Railway project, click **+ New**
+2. Select **Database** → **PostgreSQL**
+3. Railway auto-generates `DATABASE_URL`
+
+### Step 3: Add Redis
+
+1. Click **+ New** again
+2. Select **Database** → **Redis**
+3. Railway auto-generates `REDIS_URL`
+
+### Step 4: Configure Backend Service
+
+1. Click on your `air.ai` service
+2. Go to **Settings**:
+   - **Root Directory:** `backend`
+   - **Build Command:** `npm install && npm run build`
+   - **Start Command:** `npm start`
+
+3. Go to **Variables** tab and add:
+
+```bash
+# Auto-provided by Railway
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+
+# Generate these (see below)
+JWT_SECRET=<your-64-char-secret>
+JWT_REFRESH_SECRET=<your-different-64-char-secret>
+
+# AI Provider (at least one)
+OPENROUTER_API_KEY=sk-or-v1-...
+
+# Security
+NODE_ENV=production
+CORS_ORIGIN=https://air-ai-xyz.vercel.app
+PORT=5000
+```
+
+**Generate JWT secrets:**
 ```bash
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
 
-### 3. Start Services
+### Step 5: Run Database Migration
 
+1. In Railway, open your backend service
+2. Go to **Settings** → **Deploy**
+3. Add **Init Command:** `npm run migrate`
+
+**Or manually via CLI:**
 ```bash
-docker-compose up -d
+# Install Railway CLI
+npm install -g @railway/cli
+
+# Login
+railway login
+
+# Link project
+railway link
+
+# Run migration
+railway run npm run migrate
 ```
 
-### 4. Check Status
+### Step 6: Deploy
 
+1. Railway will auto-deploy on push to `main`
+2. Get your backend URL: `https://air-backend.up.railway.app`
+3. Test health: `curl https://air-backend.up.railway.app/api/v1/health`
+
+### Step 7: Update Frontend
+
+Go back to Vercel:
+1. **Settings** → **Environment Variables**
+2. Update `VITE_API_BASE_URL` with Railway backend URL
+3. **Redeploy**
+
+---
+
+## ✅ Verification Checklist
+
+- [ ] Frontend loads at Vercel URL
+- [ ] Backend health check responds: `/api/v1/health`
+- [ ] Can register new user
+- [ ] Can login
+- [ ] Can create conversation
+- [ ] Can send message and get AI response
+- [ ] Metrics endpoint works: `/api/v1/metrics`
+
+---
+
+## 🔧 Post-Deployment Setup
+
+### 1. Custom Domain (Optional)
+
+**Vercel:**
+- Settings → Domains → Add Domain
+- Follow DNS instructions
+
+**Railway:**
+- Settings → Networking → Custom Domain
+- Add CNAME record
+
+### 2. Monitoring
+
+**Railway:**
+- Built-in metrics dashboard
+- View logs in real-time
+
+**External (Recommended):**
+- [Better Stack](https://betterstack.com) - Free tier
+- [Sentry](https://sentry.io) - Error tracking
+
+### 3. Backups
+
+**PostgreSQL:**
 ```bash
-docker-compose ps
-docker-compose logs -f
+# Export from Railway
+railway run pg_dump $DATABASE_URL > backup.sql
+
+# Restore
+railway run psql $DATABASE_URL < backup.sql
 ```
 
-## Security Checklist
+---
 
-- [ ] Change all default passwords
-- [ ] Enable SSL/TLS (Let's Encrypt)
-- [ ] Setup firewall (only ports 80, 443, 22)
-- [ ] Enable database backups
-- [ ] Setup monitoring (Sentry, Grafana)
-- [ ] Configure rate limiting
-- [ ] Enable CORS only for your domain
-- [ ] Regular security updates
+## 💰 Cost Estimates
 
-## Monitoring Setup
+### Free Tier Limits
 
-### Prometheus + Grafana
+**Vercel:**
+- 100GB bandwidth/month
+- Unlimited deployments
+- Free SSL
 
-```bash
-docker-compose -f docker-compose.monitoring.yml up -d
-```
+**Railway:**
+- $5 free credit/month
+- Shared CPU
+- 512MB RAM
+- 1GB storage
 
-Access Grafana: `http://your-server:3000`
+**Estimated Monthly Cost:** $0-5
 
-## Backup Strategy
+### Production Tier
 
-### Automated Daily Backups
+**Vercel Pro:** $20/month
+**Railway Pro:** ~$10-20/month (usage-based)
 
-```bash
-# Add to crontab
-0 2 * * * /usr/local/bin/backup-db.sh
-```
+**Total:** ~$30-40/month
 
-### Backup Script
+---
 
-```bash
-#!/bin/bash
-pg_dump -h localhost -U airuser airdb > backup-$(date +%Y%m%d).sql
-aws s3 cp backup-$(date +%Y%m%d).sql s3://your-backup-bucket/
-```
+## 🐛 Troubleshooting
 
-## Performance Optimization
-
-1. **Database**:
-   - Query optimization
-   - Connection pooling
-   - Indexes on frequently queried columns
-
-2. **Caching**:
-   - Redis for sessions
-   - API response caching
-   - Cache invalidation strategy
-
-3. **Frontend**:
-   - Use CDN for static assets
-   - Enable gzip compression
-   - Code splitting
-
-## Troubleshooting
-
-### Backend not starting
+### Build Fails
 
 ```bash
-docker-compose logs backend
+# Check Railway logs
+railway logs
+
+# Common issues:
+# 1. Missing dependencies - check package.json
+# 2. TypeScript errors - run `npm run typecheck` locally
+# 3. Environment variables - verify all are set
 ```
 
-### Database connection failed
+### Database Connection Issues
 
-Check `DATABASE_URL` in `.env` and verify PostgreSQL is running.
+```bash
+# Test connection
+railway run psql $DATABASE_URL -c "SELECT 1"
 
-### Redis connection failed
+# Check migrations
+railway run npm run migrate
+```
 
-Check `REDIS_URL` in `.env` and verify Redis is running.
+### CORS Errors
 
-## Scaling
+Ensure backend `CORS_ORIGIN` matches frontend URL exactly:
+```bash
+CORS_ORIGIN=https://air-ai-xyz.vercel.app
+```
 
-### Horizontal Scaling
+---
 
-1. Use load balancer (AWS ALB / Nginx)
-2. Run multiple backend instances
-3. Configure sticky sessions
-4. Use database read replicas
+## 📚 Alternative Deployment Options
 
-### Vertical Scaling
+### Option 2: Render.com (All-in-One)
+- Free PostgreSQL database
+- Free Redis
+- Free web service (with sleep after inactivity)
 
-1. Increase server resources
-2. Optimize database queries
-3. Implement caching strategy
+### Option 3: Fly.io
+- Docker-based deployment
+- Global CDN
+- Free tier: 3 VMs
 
-## Support
+### Option 4: AWS (Advanced)
+- ECS Fargate
+- RDS PostgreSQL
+- ElastiCache Redis
+- More complex but scalable
 
-For issues or questions:
-- GitHub Issues: https://github.com/rajeevrajora77-lab/air.ai/issues
-- Documentation: https://github.com/rajeevrajora77-lab/air.ai/docs
+---
+
+## 🔐 Security Checklist
+
+- [ ] JWT secrets are strong (64+ characters)
+- [ ] Environment variables are not in code
+- [ ] CORS is properly configured
+- [ ] HTTPS is enabled (automatic on Vercel/Railway)
+- [ ] Database has strong password
+- [ ] API rate limiting is enabled
+
+---
+
+## 📞 Support
+
+If you encounter issues:
+1. Check Railway/Vercel logs
+2. Verify environment variables
+3. Test health endpoint
+4. Open an issue on GitHub
+
+---
+
+**Last Updated:** February 12, 2026
