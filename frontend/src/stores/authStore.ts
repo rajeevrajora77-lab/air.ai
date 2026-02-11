@@ -25,7 +25,7 @@ interface AuthState {
   setTokens: (accessToken: string | null, refreshToken: string | null) => void;
 }
 
-export const useAuthStore = create<AuthState>()()
+export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
@@ -131,4 +131,5 @@ export const useAuthStore = create<AuthState>()()
         isAuthenticated: state.isAuthenticated,
       }),
     }
-  ));
+  )
+);
