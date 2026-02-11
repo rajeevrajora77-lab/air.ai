@@ -21,12 +21,20 @@ interface UserStats {
   tokensUsed: number;
 }
 
+interface ListUsersOptions {
+  page: number;
+  limit: number;
+  search?: string;
+}
+
 export class UserService {
   async getUserById(userId: string): Promise<User> {
     // Try cache first
-    const cached = await redis.get<User>(`user:${userId}`);
-    if (cached) {
-      return cached;
+    if (redis.isHealthy()) {
+      const cached = await redis.get<User>(`user:${userId}`);
+      if (cached) {
+        return cached;
+      }
     }
 
     const result = await db.query<User>(
@@ -42,28 +50,83 @@ export class UserService {
     const user = result.rows[0];
 
     // Cache for 5 minutes
-    await redis.set(`user:${userId}`, user, 300);
+    if (redis.isHealthy()) {
+      await redis.set(`user:${userId}`, user, 300);
+    }
 
     return user;
   }
 
-  async updateProfile(
+  async listUsers(options: ListUsersOptions): Promise<{ users: User[]; total: number }> {
+    const { page, limit, search } = options;
+    const offset = (page - 1) * limit;
+
+    let query = `SELECT id, email, first_name, last_name, role, is_active, is_verified, created_at, updated_at
+                 FROM users`;
+    let countQuery = `SELECT COUNT(*) as count FROM users`;
+    const params: any[] = [];
+
+    if (search) {
+      query += ` WHERE email ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1`;
+      countQuery += ` WHERE email ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1`;
+      params.push(`%${search}%`);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+
+    const [dataResult, countResult] = await Promise.all([
+      db.query<User>(query, params),
+      db.query<{ count: string }>(countQuery, search ? [`%${search}%`] : []),
+    ]);
+
+    return {
+      users: dataResult.rows,
+      total: parseInt(countResult.rows[0].count),
+    };
+  }
+
+  async updateUser(
     userId: string,
-    updates: { firstName?: string; lastName?: string }
+    updates: {
+      firstName?: string;
+      lastName?: string;
+      role?: string;
+      isActive?: boolean;
+      isVerified?: boolean;
+    }
   ): Promise<User> {
     const fields: string[] = [];
     const values: any[] = [];
     let paramIndex = 1;
 
-    if (updates.firstName) {
+    if (updates.firstName !== undefined) {
       fields.push(`first_name = $${paramIndex}`);
       values.push(updates.firstName);
       paramIndex++;
     }
 
-    if (updates.lastName) {
+    if (updates.lastName !== undefined) {
       fields.push(`last_name = $${paramIndex}`);
       values.push(updates.lastName);
+      paramIndex++;
+    }
+
+    if (updates.role !== undefined) {
+      fields.push(`role = $${paramIndex}`);
+      values.push(updates.role);
+      paramIndex++;
+    }
+
+    if (updates.isActive !== undefined) {
+      fields.push(`is_active = $${paramIndex}`);
+      values.push(updates.isActive);
+      paramIndex++;
+    }
+
+    if (updates.isVerified !== undefined) {
+      fields.push(`is_verified = $${paramIndex}`);
+      values.push(updates.isVerified);
       paramIndex++;
     }
 
@@ -88,18 +151,22 @@ export class UserService {
     const user = result.rows[0];
 
     // Update cache
-    await redis.set(`user:${userId}`, user, 300);
+    if (redis.isHealthy()) {
+      await redis.set(`user:${userId}`, user, 300);
+    }
 
-    logger.info('User profile updated:', userId);
+    logger.info('User updated:', userId);
 
     return user;
   }
 
   async getUserStats(userId: string): Promise<UserStats> {
     // Try cache first
-    const cached = await redis.get<UserStats>(`user:stats:${userId}`);
-    if (cached) {
-      return cached;
+    if (redis.isHealthy()) {
+      const cached = await redis.get<UserStats>(`user:stats:${userId}`);
+      if (cached) {
+        return cached;
+      }
     }
 
     const result = await db.query(
@@ -121,21 +188,32 @@ export class UserService {
     };
 
     // Cache for 1 minute
-    await redis.set(`user:stats:${userId}`, stats, 60);
+    if (redis.isHealthy()) {
+      await redis.set(`user:stats:${userId}`, stats, 60);
+    }
 
     return stats;
   }
 
   async deleteUser(userId: string): Promise<void> {
     await db.transaction(async (client) => {
-      // Delete user (cascades to conversations and messages)
+      // Delete user's conversations and messages first
+      await client.query(
+        `DELETE FROM messages WHERE conversation_id IN 
+         (SELECT id FROM conversations WHERE user_id = $1)`,
+        [userId]
+      );
+      await client.query('DELETE FROM conversations WHERE user_id = $1', [userId]);
+      // Delete user
       await client.query('DELETE FROM users WHERE id = $1', [userId]);
     });
 
     // Clear cache
-    await redis.del(`user:${userId}`);
-    await redis.del(`user:stats:${userId}`);
-    await redis.del(`refresh:${userId}`);
+    if (redis.isHealthy()) {
+      await redis.del(`user:${userId}`);
+      await redis.del(`user:stats:${userId}`);
+      await redis.del(`refresh:${userId}`);
+    }
 
     logger.info('User deleted:', userId);
   }
