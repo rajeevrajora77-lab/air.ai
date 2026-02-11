@@ -1,5 +1,5 @@
-import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../middleware/auth';
+import { Response } from 'express';
+import { AuthRequest } from '../middleware/auth.middleware';
 import { authService } from '../services/auth.service';
 import { asyncHandler } from '../middleware/errorHandler';
 
@@ -31,7 +31,7 @@ export class AuthController {
     });
   });
 
-  refreshTokens = asyncHandler(async (req: AuthRequest, res: Response) => {
+  refreshToken = asyncHandler(async (req: AuthRequest, res: Response) => {
     const { refreshToken } = req.body;
 
     const tokens = await authService.refreshTokens(refreshToken);
@@ -63,13 +63,6 @@ export class AuthController {
     res.json({
       success: true,
       message: 'Password changed successfully',
-    });
-  });
-
-  getProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
-    res.json({
-      success: true,
-      data: { user: req.user },
     });
   });
 }

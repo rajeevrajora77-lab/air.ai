@@ -54,3 +54,13 @@ export class DatabaseError extends AppError {
     this.isOperational = false;
   }
 }
+
+export class AIServiceError extends AppError {
+  provider: string;
+
+  constructor(message: string, provider: string) {
+    super(message, 500, 'AI_SERVICE_ERROR');
+    this.provider = provider;
+    this.isOperational = false;
+  }
+}

@@ -1,10 +1,11 @@
 import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest } from '../middleware/auth.middleware';
 import { userService } from '../services/user.service';
 import { asyncHandler } from '../middleware/errorHandler';
 
 export class UserController {
-  getProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
+  // Current user endpoints (match routes: /me)
+  getMe = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
 
     const user = await userService.getUserById(userId);
@@ -15,11 +16,11 @@ export class UserController {
     });
   });
 
-  updateProfile = asyncHandler(async (req: AuthRequest, res: Response) => {
+  updateMe = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { firstName, lastName } = req.body;
 
-    const user = await userService.updateProfile(userId, {
+    const user = await userService.updateUser(userId, {
       firstName,
       lastName,
     });
@@ -41,14 +42,53 @@ export class UserController {
     });
   });
 
-  deleteAccount = asyncHandler(async (req: AuthRequest, res: Response) => {
-    const userId = req.user!.id;
+  // Admin endpoints
+  listUsers = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { page = 1, limit = 20, search } = req.query;
 
-    await userService.deleteUser(userId);
+    const result = await userService.listUsers({
+      page: Number(page),
+      limit: Number(limit),
+      search: search as string | undefined,
+    });
 
     res.json({
       success: true,
-      message: 'Account deleted successfully',
+      data: result,
+    });
+  });
+
+  getUser = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+
+    const user = await userService.getUserById(id);
+
+    res.json({
+      success: true,
+      data: { user },
+    });
+  });
+
+  updateUser = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    const updates = req.body;
+
+    const user = await userService.updateUser(id, updates);
+
+    res.json({
+      success: true,
+      data: { user },
+    });
+  });
+
+  deleteUser = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+
+    await userService.deleteUser(id);
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully',
     });
   });
 }

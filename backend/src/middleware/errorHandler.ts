@@ -1,17 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../utils/errors';
 import logger from '../utils/logger';
-import config from '../config';
+import { ZodError } from 'zod';
 
-interface ErrorResponse {
-  success: false;
-  error: {
-    code: string;
-    message: string;
-    details?: any;
-    stack?: string;
+// Async handler wrapper to catch errors
+export const asyncHandler = (fn: Function) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
   };
-}
+};
 
 export const errorHandler = (
   err: Error | AppError,
@@ -19,68 +16,54 @@ export const errorHandler = (
   res: Response,
   next: NextFunction
 ) => {
-  // Log error
-  logger.error('Error occurred:', {
-    error: err.message,
+  if (err instanceof AppError) {
+    // Operational errors (expected)
+    logger.warn('Operational error:', {
+      code: err.code,
+      message: err.message,
+      statusCode: err.statusCode,
+      path: req.path,
+    });
+
+    return res.status(err.statusCode).json({
+      success: false,
+      error: {
+        code: err.code,
+        message: err.message,
+      },
+    });
+  }
+
+  if (err instanceof ZodError) {
+    // Validation errors
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Validation failed',
+        details: err.errors,
+      },
+    });
+  }
+
+  // Programming errors (unexpected)
+  logger.error('Unexpected error:', {
+    message: err.message,
     stack: err.stack,
     path: req.path,
-    method: req.method,
-    body: req.body,
-    user: (req as any).user?.id,
   });
 
-  // Default error response
-  let statusCode = 500;
-  let code = 'INTERNAL_SERVER_ERROR';
-  let message = 'An unexpected error occurred';
-  let details: any = undefined;
-
-  // Handle known errors
-  if (err instanceof AppError) {
-    statusCode = err.statusCode;
-    code = err.code || 'APPLICATION_ERROR';
-    message = err.message;
-
-    // Log operational errors as warnings
-    if (err.isOperational) {
-      logger.warn('Operational error:', {
-        code,
-        message,
-        statusCode,
-        path: req.path,
-      });
-    }
-  }
-
-  // Parse validation error details
-  if (code === 'VALIDATION_ERROR') {
-    try {
-      details = JSON.parse(message);
-      message = 'Validation failed';
-    } catch {
-      // Keep original message if parsing fails
-    }
-  }
-
-  // Build error response
-  const errorResponse: ErrorResponse = {
+  return res.status(500).json({
     success: false,
     error: {
-      code,
-      message,
-      ...(details && { details }),
+      code: 'INTERNAL_SERVER_ERROR',
+      message: process.env.NODE_ENV === 'production' 
+        ? 'Internal server error' 
+        : err.message,
     },
-  };
-
-  // Include stack trace in development
-  if (config.NODE_ENV === 'development') {
-    errorResponse.error.stack = err.stack;
-  }
-
-  res.status(statusCode).json(errorResponse);
+  });
 };
 
-// 404 handler
 export const notFoundHandler = (req: Request, res: Response) => {
   res.status(404).json({
     success: false,
@@ -89,11 +72,4 @@ export const notFoundHandler = (req: Request, res: Response) => {
       message: `Route ${req.method} ${req.path} not found`,
     },
   });
-};
-
-// Async error wrapper
-export const asyncHandler = (fn: Function) => {
-  return (req: Request, res: Response, next: NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-  };
 };

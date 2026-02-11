@@ -1,10 +1,10 @@
 import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest } from '../middleware/auth.middleware';
 import { conversationService } from '../services/conversation.service';
 import { asyncHandler } from '../middleware/errorHandler';
 
 export class ConversationController {
-  createConversation = asyncHandler(async (req: AuthRequest, res: Response) => {
+  create = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { title } = req.body;
 
@@ -16,11 +16,11 @@ export class ConversationController {
     });
   });
 
-  getConversation = asyncHandler(async (req: AuthRequest, res: Response) => {
+  get = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
-    const { conversationId } = req.params;
+    const { id } = req.params;
 
-    const conversation = await conversationService.getConversation(conversationId, userId);
+    const conversation = await conversationService.getConversation(id, userId);
 
     res.json({
       success: true,
@@ -28,14 +28,14 @@ export class ConversationController {
     });
   });
 
-  listConversations = asyncHandler(async (req: AuthRequest, res: Response) => {
+  list = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { includeArchived, limit, offset } = req.query;
 
     const result = await conversationService.listConversations(userId, {
-      includeArchived: includeArchived as boolean | undefined,
-      limit: limit as number | undefined,
-      offset: offset as number | undefined,
+      includeArchived: includeArchived === 'true',
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
     });
 
     res.json({
@@ -44,16 +44,15 @@ export class ConversationController {
     });
   });
 
-  updateConversation = asyncHandler(async (req: AuthRequest, res: Response) => {
+  update = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
-    const { conversationId } = req.params;
+    const { id } = req.params;
     const { title, isArchived } = req.body;
 
-    const conversation = await conversationService.updateConversation(
-      conversationId,
-      userId,
-      { title, isArchived }
-    );
+    const conversation = await conversationService.updateConversation(id, userId, {
+      title,
+      isArchived,
+    });
 
     res.json({
       success: true,
@@ -61,11 +60,11 @@ export class ConversationController {
     });
   });
 
-  deleteConversation = asyncHandler(async (req: AuthRequest, res: Response) => {
+  delete = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
-    const { conversationId } = req.params;
+    const { id } = req.params;
 
-    await conversationService.deleteConversation(conversationId, userId);
+    await conversationService.deleteConversation(id, userId);
 
     res.json({
       success: true,
@@ -75,11 +74,11 @@ export class ConversationController {
 
   getMessages = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
-    const { conversationId } = req.params;
+    const { id } = req.params;
     const { limit, before } = req.query;
 
-    const messages = await conversationService.getMessages(conversationId, userId, {
-      limit: limit as number | undefined,
+    const messages = await conversationService.getMessages(id, userId, {
+      limit: limit ? Number(limit) : undefined,
       before: before as string | undefined,
     });
 
@@ -91,12 +90,13 @@ export class ConversationController {
 
   createMessage = asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
-    const { conversationId } = req.params;
-    const { content, model } = req.body;
+    const { id } = req.params;
+    const { content, model, provider } = req.body;
 
-    const result = await conversationService.createMessage(conversationId, userId, {
+    const result = await conversationService.createMessage(id, userId, {
       content,
       model,
+      provider,
     });
 
     res.status(201).json({
