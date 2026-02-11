@@ -6,22 +6,12 @@ import healthRoutes from './health.routes';
 
 const router = Router();
 
-// API Routes
+// API version 1 routes
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/conversations', conversationRoutes);
 
-// Health & Monitoring
-router.use(healthRoutes);
-
-// API Info
-router.get('/', (req, res) => {
-  res.json({
-    name: 'air.ai API',
-    version: '1.0.0',
-    status: 'running',
-    docs: '/api/v1/docs',
-  });
-});
+// Health and metrics (no version prefix)
+router.use('/', healthRoutes);
 
 export default router;

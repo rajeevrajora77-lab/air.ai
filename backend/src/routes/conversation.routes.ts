@@ -1,28 +1,71 @@
 import { Router } from 'express';
 import { conversationController } from '../controllers/conversation.controller';
 import { validate } from '../middleware/validator';
-import { authenticate } from '../middleware/auth';
-import { aiRateLimiter } from '../middleware/rateLimiter';
 import {
   createConversationSchema,
-  sendMessageSchema,
-  getConversationsSchema,
-  conversationIdSchema,
+  updateConversationSchema,
+  conversationParamsSchema,
+  listConversationsSchema,
+  createMessageSchema,
+  getMessagesSchema,
 } from '../validators/conversation.validator';
+import { authenticate } from '../middleware/auth';
+import { apiRateLimiter, messageRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
 // All conversation routes require authentication
 router.use(authenticate);
 
-// Get available AI providers
-router.get('/providers', conversationController.getProviders.bind(conversationController));
+// Conversations
+router.post(
+  '/',
+  apiRateLimiter,
+  validate(createConversationSchema),
+  conversationController.createConversation
+);
 
-// CRUD operations
-router.post('/', aiRateLimiter, validate(createConversationSchema), conversationController.create.bind(conversationController));
-router.get('/', validate(getConversationsSchema), conversationController.list.bind(conversationController));
-router.get('/:id', validate(conversationIdSchema), conversationController.getOne.bind(conversationController));
-router.post('/:id/messages', aiRateLimiter, validate(sendMessageSchema), conversationController.sendMessage.bind(conversationController));
-router.delete('/:id', validate(conversationIdSchema), conversationController.delete.bind(conversationController));
+router.get(
+  '/',
+  apiRateLimiter,
+  validate(listConversationsSchema),
+  conversationController.listConversations
+);
+
+router.get(
+  '/:conversationId',
+  apiRateLimiter,
+  validate(conversationParamsSchema),
+  conversationController.getConversation
+);
+
+router.patch(
+  '/:conversationId',
+  apiRateLimiter,
+  validate(updateConversationSchema),
+  conversationController.updateConversation
+);
+
+router.delete(
+  '/:conversationId',
+  apiRateLimiter,
+  validate(conversationParamsSchema),
+  conversationController.deleteConversation
+);
+
+// Messages
+router.get(
+  '/:conversationId/messages',
+  apiRateLimiter,
+  validate(getMessagesSchema),
+  conversationController.getMessages
+);
+
+router.post(
+  '/:conversationId/messages',
+  messageRateLimiter,
+  validate(createMessageSchema),
+  conversationController.createMessage
+);
 
 export default router;
