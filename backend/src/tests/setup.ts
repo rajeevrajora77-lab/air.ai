@@ -1,21 +1,29 @@
-import { db } from '../database/postgres';
-import { redis } from '../database/redis';
+import dotenv from 'dotenv';
 
-// Setup before all tests
-beforeAll(async () => {
-  // Connect to test database
-  await db.connect();
-  await redis.connect();
-});
+// Load test environment variables
+dotenv.config({ path: '.env.test' });
 
-// Cleanup after all tests
+// Set test environment
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'test-secret-key-minimum-32-characters-long';
+process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-key-minimum-32-characters';
+process.env.BCRYPT_ROUNDS = '4'; // Faster for tests
+
+// Mock console methods in tests
+global.console = {
+  ...console,
+  log: jest.fn(),
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+};
+
+// Set longer timeout for integration tests
+jest.setTimeout(10000);
+
+// Clean up after all tests
 afterAll(async () => {
-  await db.disconnect();
-  await redis.disconnect();
-});
-
-// Clear database before each test
-beforeEach(async () => {
-  // Truncate tables
-  await db.query('TRUNCATE users CASCADE');
+  // Add cleanup logic here if needed
+  await new Promise((resolve) => setTimeout(resolve, 500));
 });
