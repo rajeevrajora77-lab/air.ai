@@ -16,6 +16,7 @@ interface User {
   role: string;
   is_active: boolean;
   is_verified: boolean;
+  token_version: number; // For token invalidation
   created_at: Date;
 }
 
@@ -25,12 +26,12 @@ interface TokenPair {
 }
 
 interface AuthResponse {
-  user: Omit<User, 'password'>;
+  user: Omit<User, 'password' | 'token_version'>;
   tokens: TokenPair;
 }
 
 export class AuthService {
-  private generateAccessToken(payload: { id: string; email: string; role: string }): string {
+  private generateAccessToken(payload: { id: string; email: string; role: string; version: number }): string {
     return jwt.sign(payload, config.JWT_SECRET, {
       expiresIn: config.JWT_ACCESS_EXPIRATION,
       issuer: 'air-api',
@@ -38,9 +39,9 @@ export class AuthService {
     });
   }
 
-  private generateRefreshToken(userId: string): string {
+  private generateRefreshToken(userId: string, version: number): string {
     return jwt.sign(
-      { id: userId, type: 'refresh' },
+      { id: userId, type: 'refresh', version },
       config.JWT_REFRESH_SECRET,
       {
         expiresIn: config.JWT_REFRESH_EXPIRATION,
@@ -81,9 +82,9 @@ export class AuthService {
     // Create user in transaction
     const result = await db.transaction(async (client) => {
       const userResult = await client.query<User>(
-        `INSERT INTO users (email, password, first_name, last_name, role)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, email, first_name, last_name, role, is_active, is_verified, created_at`,
+        `INSERT INTO users (email, password, first_name, last_name, role, token_version)
+         VALUES ($1, $2, $3, $4, $5, 0)
+         RETURNING id, email, first_name, last_name, role, is_active, is_verified, token_version, created_at`,
         [email.toLowerCase(), hashedPassword, firstName, lastName, 'user']
       );
       return userResult.rows[0];
@@ -92,13 +93,15 @@ export class AuthService {
     // Generate tokens
     const tokens = await this.generateTokens(result);
 
-    // Cache user session
+    // Cache user session (graceful degradation if Redis fails)
     await this.cacheUserSession(result.id, tokens.refreshToken);
 
     logger.info('User registered:', result.email);
 
+    const { token_version, ...userWithoutSensitiveData } = result;
+
     return {
-      user: result,
+      user: userWithoutSensitiveData,
       tokens,
     };
   }
@@ -106,7 +109,7 @@ export class AuthService {
   async login(email: string, password: string): Promise<AuthResponse> {
     // Get user with password
     const result = await db.query<User>(
-      `SELECT id, email, password, first_name, last_name, role, is_active, is_verified, created_at
+      `SELECT id, email, password, first_name, last_name, role, is_active, is_verified, token_version, created_at
        FROM users WHERE email = $1`,
       [email.toLowerCase()]
     );
@@ -130,16 +133,16 @@ export class AuthService {
     // Generate tokens
     const tokens = await this.generateTokens(user);
 
-    // Cache user session
+    // Cache user session (graceful degradation if Redis fails)
     await this.cacheUserSession(user.id, tokens.refreshToken);
 
-    // Remove password from response
-    const { password: _, ...userWithoutPassword } = user;
+    // Remove password and token_version from response
+    const { password: _, token_version, ...userWithoutSensitiveData } = user;
 
     logger.info('User logged in:', user.email);
 
     return {
-      user: userWithoutPassword,
+      user: userWithoutSensitiveData,
       tokens,
     };
   }
@@ -150,21 +153,16 @@ export class AuthService {
       const decoded = jwt.verify(refreshToken, config.JWT_REFRESH_SECRET) as {
         id: string;
         type: string;
+        version: number;
       };
 
       if (decoded.type !== 'refresh') {
         throw new AuthenticationError('Invalid token type');
       }
 
-      // Check if token is in cache
-      const cachedToken = await redis.get<string>(`refresh:${decoded.id}`);
-      if (cachedToken !== refreshToken) {
-        throw new AuthenticationError('Invalid refresh token');
-      }
-
-      // Get user
+      // Get user with token version
       const result = await db.query<User>(
-        'SELECT id, email, role, is_active FROM users WHERE id = $1',
+        'SELECT id, email, role, is_active, token_version FROM users WHERE id = $1',
         [decoded.id]
       );
 
@@ -173,14 +171,24 @@ export class AuthService {
         throw new AuthenticationError('User not found or inactive');
       }
 
+      // Validate token version (database-backed invalidation)
+      if (decoded.version !== user.token_version) {
+        throw new AuthenticationError('Token has been invalidated');
+      }
+
+      // Check if token is in cache (if Redis is available)
+      if (redis.isHealthy()) {
+        const cachedToken = await redis.get<string>(`refresh:${decoded.id}`);
+        if (cachedToken && cachedToken !== refreshToken) {
+          throw new AuthenticationError('Invalid refresh token');
+        }
+      }
+
       // Generate new tokens
       const tokens = await this.generateTokens(user);
 
       // Update cached session with new refresh token
       await this.cacheUserSession(user.id, tokens.refreshToken);
-
-      // Blacklist old refresh token
-      await redis.set(`blacklist:${refreshToken}`, true, 86400); // 24 hours
 
       logger.info('Tokens refreshed for user:', user.email);
 
@@ -194,13 +202,13 @@ export class AuthService {
   }
 
   async logout(userId: string, accessToken: string): Promise<void> {
-    // Remove refresh token from cache
-    await redis.del(`refresh:${userId}`);
+    // Remove refresh token from cache (if Redis available)
+    if (redis.isHealthy()) {
+      await redis.del(`refresh:${userId}`);
+    }
 
-    // Blacklist access token
-    const decoded = jwt.decode(accessToken) as any;
-    const expiresIn = decoded.exp - Math.floor(Date.now() / 1000);
-    await redis.set(`blacklist:${accessToken}`, true, expiresIn);
+    // Don't blacklist access tokens - too memory intensive
+    // Instead, rely on short TTL (15min) and token version for invalidation
 
     logger.info('User logged out:', userId);
   }
@@ -212,7 +220,7 @@ export class AuthService {
   ): Promise<void> {
     // Get user with password
     const result = await db.query<User>(
-      'SELECT id, email, password FROM users WHERE id = $1',
+      'SELECT id, email, password, token_version FROM users WHERE id = $1',
       [userId]
     );
 
@@ -230,16 +238,33 @@ export class AuthService {
     // Hash new password
     const hashedPassword = await this.hashPassword(newPassword);
 
-    // Update password
+    // Update password and increment token version (invalidates all tokens)
     await db.query(
-      'UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2',
+      'UPDATE users SET password = $1, token_version = token_version + 1, updated_at = NOW() WHERE id = $2',
       [hashedPassword, userId]
     );
 
-    // Invalidate all sessions
-    await redis.del(`refresh:${userId}`);
+    // Clear cached session (if Redis available)
+    if (redis.isHealthy()) {
+      await redis.del(`refresh:${userId}`);
+    }
 
     logger.info('Password changed for user:', user.email);
+  }
+
+  async invalidateAllUserTokens(userId: string): Promise<void> {
+    // Increment token version to invalidate all tokens
+    await db.query(
+      'UPDATE users SET token_version = token_version + 1 WHERE id = $1',
+      [userId]
+    );
+
+    // Clear cached session (if Redis available)
+    if (redis.isHealthy()) {
+      await redis.del(`refresh:${userId}`);
+    }
+
+    logger.info('All tokens invalidated for user:', userId);
   }
 
   private async generateTokens(user: User): Promise<TokenPair> {
@@ -247,9 +272,10 @@ export class AuthService {
       id: user.id,
       email: user.email,
       role: user.role,
+      version: user.token_version,
     });
 
-    const refreshToken = this.generateRefreshToken(user.id);
+    const refreshToken = this.generateRefreshToken(user.id, user.token_version);
 
     return {
       accessToken,
@@ -258,8 +284,19 @@ export class AuthService {
   }
 
   private async cacheUserSession(userId: string, refreshToken: string): Promise<void> {
-    // Cache refresh token for 7 days
-    await redis.set(`refresh:${userId}`, refreshToken, 7 * 24 * 60 * 60);
+    if (!redis.isHealthy()) {
+      logger.warn('Redis unavailable, skipping session cache');
+      return;
+    }
+
+    try {
+      // Cache only the refresh token for 7 days
+      // This provides faster validation but gracefully degrades if Redis fails
+      await redis.set(`refresh:${userId}`, refreshToken, 7 * 24 * 60 * 60);
+    } catch (error) {
+      // Log but don't fail - auth still works via DB token_version
+      logger.warn('Failed to cache user session:', error);
+    }
   }
 }
 
