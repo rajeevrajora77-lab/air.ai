@@ -21,6 +21,9 @@ class ApiClient {
     reject: (reason?: any) => void;
   }> = [];
 
+  // In-memory token storage (more secure than localStorage for access tokens)
+  private accessToken: string | null = null;
+
   constructor() {
     this.client = axios.create({
       baseURL: API_BASE_URL,
@@ -28,7 +31,11 @@ class ApiClient {
         'Content-Type': 'application/json',
       },
       timeout: 30000,
+      withCredentials: true, // Enable cookies for httpOnly refresh tokens
     });
+
+    // Initialize from localStorage on startup (migration path)
+    this.accessToken = localStorage.getItem('accessToken');
 
     this.setupInterceptors();
   }
@@ -37,9 +44,8 @@ class ApiClient {
     // Request interceptor
     this.client.interceptors.request.use(
       (config: InternalAxiosRequestConfig) => {
-        const token = localStorage.getItem('accessToken');
-        if (token && config.headers) {
-          config.headers.Authorization = `Bearer ${token}`;
+        if (this.accessToken && config.headers) {
+          config.headers.Authorization = `Bearer ${this.accessToken}`;
         }
         return config;
       },
@@ -79,13 +85,16 @@ class ApiClient {
           try {
             const response = await axios.post<TokenRefreshResponse>(
               `${API_BASE_URL}/auth/refresh`,
-              { refreshToken }
+              { refreshToken },
+              { withCredentials: true }
             );
 
             const { accessToken, refreshToken: newRefreshToken } =
               response.data.data.tokens;
 
-            localStorage.setItem('accessToken', accessToken);
+            this.setAccessToken(accessToken);
+            // TODO: Backend should set refreshToken as httpOnly cookie
+            // For now, keep in localStorage for backward compatibility
             localStorage.setItem('refreshToken', newRefreshToken);
 
             // Retry all queued requests
@@ -111,7 +120,23 @@ class ApiClient {
     );
   }
 
+  public setAccessToken(token: string | null) {
+    this.accessToken = token;
+    // Keep in localStorage for persistence across page refreshes
+    // TODO: Move to sessionStorage for better security
+    if (token) {
+      localStorage.setItem('accessToken', token);
+    } else {
+      localStorage.removeItem('accessToken');
+    }
+  }
+
+  public getAccessToken(): string | null {
+    return this.accessToken;
+  }
+
   private handleAuthError() {
+    this.accessToken = null;
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
@@ -143,3 +168,6 @@ class ApiClient {
 
 export const apiClient = new ApiClient();
 export const api = apiClient.getClient();
+
+// Export setAccessToken for use in auth flows
+export const setAccessToken = (token: string | null) => apiClient.setAccessToken(token);
