@@ -1,45 +1,48 @@
-import dotenv from 'dotenv';
 import { z } from 'zod';
-import { parse } from 'pg-connection-string';
+import dotenv from 'dotenv';
+import { parse as parseConnectionString } from 'pg-connection-string';
 
 dotenv.config();
 
-const envSchema = z.object({
+const configSchema = z.object({
+  // Server
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.string().transform(Number).default('5000'),
-  
-  // Database - either DATABASE_URL or individual fields
-  DATABASE_URL: z.string().optional(),
+  PORT: z.coerce.number().default(5000),
+
+  // Database - Support both URL and individual fields
+  DATABASE_URL: z.string().url().optional(),
   POSTGRES_HOST: z.string().optional(),
-  POSTGRES_PORT: z.string().transform(Number).optional(),
+  POSTGRES_PORT: z.coerce.number().optional(),
   POSTGRES_USER: z.string().optional(),
   POSTGRES_PASSWORD: z.string().optional(),
   POSTGRES_DB: z.string().optional(),
-  DB_POOL_MIN: z.string().transform(Number).default('2'),
-  DB_POOL_MAX: z.string().transform(Number).default('10'),
-  
-  // Redis - either REDIS_URL or individual fields
+  POOL_MIN: z.coerce.number().default(2),
+  POOL_MAX: z.coerce.number().default(10),
+
+  // Redis - Support both URL and individual fields
   REDIS_URL: z.string().optional(),
-  REDIS_HOST: z.string().optional(),
-  REDIS_PORT: z.string().transform(Number).optional(),
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional(),
-  
+
   // JWT
   JWT_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_EXPIRATION: z.string().default('15m'),
   JWT_REFRESH_EXPIRATION: z.string().default('7d'),
-  
+
   // Security
-  BCRYPT_ROUNDS: z.string().transform(Number).default('12'),
-  CORS_ORIGIN: z.string().default('http://localhost:5173'),
-  
+  BCRYPT_ROUNDS: z.coerce.number().default(12),
+
   // Rate Limiting
-  RATE_LIMIT_WINDOW_MS: z.string().transform(Number).default('900000'),
-  RATE_LIMIT_MAX_REQUESTS: z.string().transform(Number).default('100'),
-  RATE_LIMIT_REFRESH_MAX: z.string().transform(Number).default('5'), // New: strict limit for refresh
-  
-  // AI Providers (all optional)
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
+  RATE_LIMIT_REFRESH_MAX: z.coerce.number().default(5),
+
+  // CORS
+  CORS_ORIGIN: z.string().default('http://localhost:5173'),
+
+  // AI Provider Keys (all optional)
   OPENROUTER_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -50,60 +53,72 @@ const envSchema = z.object({
   TOGETHER_API_KEY: z.string().optional(),
   REPLICATE_API_KEY: z.string().optional(),
   HUGGINGFACE_API_KEY: z.string().optional(),
-  
-  // Monitoring
-  SENTRY_DSN: z.string().url().optional(),
+
+  // Logging
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
+  LOG_FILE_PATH: z.string().default('logs'),
+
+  // Monitoring
+  SENTRY_DSN: z.string().optional(),
 });
 
-const validateEnv = () => {
-  try {
-    const env = envSchema.parse(process.env);
-    
-    // Parse DATABASE_URL if provided
-    if (env.DATABASE_URL) {
-      const dbConfig = parse(env.DATABASE_URL);
-      env.POSTGRES_HOST = env.POSTGRES_HOST || dbConfig.host || 'localhost';
-      env.POSTGRES_PORT = env.POSTGRES_PORT || (dbConfig.port ? parseInt(dbConfig.port) : 5432);
-      env.POSTGRES_USER = env.POSTGRES_USER || dbConfig.user || 'postgres';
-      env.POSTGRES_PASSWORD = env.POSTGRES_PASSWORD || dbConfig.password || '';
-      env.POSTGRES_DB = env.POSTGRES_DB || dbConfig.database || 'air_ai';
-    } else {
-      // Require individual fields if DATABASE_URL not provided
-      if (!env.POSTGRES_HOST || !env.POSTGRES_USER || !env.POSTGRES_DB) {
-        throw new Error('Either DATABASE_URL or individual POSTGRES_* variables must be set');
-      }
-    }
-    
-    // Parse REDIS_URL if provided
-    if (env.REDIS_URL) {
-      const url = new URL(env.REDIS_URL);
-      env.REDIS_HOST = env.REDIS_HOST || url.hostname;
-      env.REDIS_PORT = env.REDIS_PORT || parseInt(url.port) || 6379;
-      env.REDIS_PASSWORD = env.REDIS_PASSWORD || url.password || undefined;
-    } else {
-      // Default Redis connection
-      env.REDIS_HOST = env.REDIS_HOST || 'localhost';
-      env.REDIS_PORT = env.REDIS_PORT || 6379;
-    }
-    
-    // Validate at least one AI provider is configured
-    const hasAIProvider = env.OPENROUTER_API_KEY || env.OPENAI_API_KEY || 
-                          env.ANTHROPIC_API_KEY || env.GOOGLE_AI_API_KEY ||
-                          env.COHERE_API_KEY || env.MISTRAL_API_KEY ||
-                          env.GROQ_API_KEY || env.TOGETHER_API_KEY ||
-                          env.REPLICATE_API_KEY || env.HUGGINGFACE_API_KEY;
-    
-    if (!hasAIProvider) {
-      console.warn('⚠️  WARNING: No AI provider API keys configured!');
-    }
-    
-    return env;
-  } catch (error) {
-    console.error('❌ Invalid environment variables:', error);
-    process.exit(1);
-  }
-};
+const parsed = configSchema.safeParse(process.env);
 
-export const config = validateEnv();
+if (!parsed.success) {
+  console.error('❌ Invalid configuration:');
+  console.error(parsed.error.format());
+  throw new Error('Invalid configuration');
+}
+
+let config = parsed.data;
+
+// Parse DATABASE_URL if provided
+if (config.DATABASE_URL) {
+  const pgConfig = parseConnectionString(config.DATABASE_URL);
+  config = {
+    ...config,
+    POSTGRES_HOST: pgConfig.host || config.POSTGRES_HOST || 'localhost',
+    POSTGRES_PORT: pgConfig.port ? parseInt(pgConfig.port) : config.POSTGRES_PORT || 5432,
+    POSTGRES_USER: pgConfig.user || config.POSTGRES_USER || 'postgres',
+    POSTGRES_PASSWORD: pgConfig.password || config.POSTGRES_PASSWORD || '',
+    POSTGRES_DB: pgConfig.database || config.POSTGRES_DB || 'air_ai',
+  };
+} else if (!config.POSTGRES_HOST || !config.POSTGRES_DB) {
+  throw new Error('Either DATABASE_URL or POSTGRES_* fields must be provided');
+}
+
+// Parse REDIS_URL if provided
+if (config.REDIS_URL) {
+  try {
+    const url = new URL(config.REDIS_URL);
+    config = {
+      ...config,
+      REDIS_HOST: url.hostname || config.REDIS_HOST,
+      REDIS_PORT: url.port ? parseInt(url.port) : config.REDIS_PORT,
+      REDIS_PASSWORD: url.password || config.REDIS_PASSWORD,
+    };
+  } catch (error) {
+    throw new Error('Invalid REDIS_URL format');
+  }
+}
+
+// Validate at least one AI provider is configured
+const aiProviders = [
+  config.OPENROUTER_API_KEY,
+  config.OPENAI_API_KEY,
+  config.ANTHROPIC_API_KEY,
+  config.GOOGLE_AI_API_KEY,
+  config.COHERE_API_KEY,
+  config.MISTRAL_API_KEY,
+  config.GROQ_API_KEY,
+  config.TOGETHER_API_KEY,
+  config.REPLICATE_API_KEY,
+  config.HUGGINGFACE_API_KEY,
+].filter(Boolean);
+
+if (aiProviders.length === 0) {
+  console.warn('⚠️  WARNING: No AI provider API keys configured!');
+  console.warn('   Set at least one of: OPENROUTER_API_KEY, OPENAI_API_KEY, etc.');
+}
+
 export default config;

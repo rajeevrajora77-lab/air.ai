@@ -1,251 +1,256 @@
-# air.ai - AI-Powered Chat Application
+# air.ai - AI Chat Platform
 
-Production-ready full-stack AI chat application built with TypeScript, React, Node.js, PostgreSQL, and Redis.
+**Production-Ready Full-Stack Application**
 
-## 🚀 Features
+- 🤖 Multi-provider AI integration (10+ providers)
+- 🔐 Secure authentication with JWT + token versioning
+- 💬 Conversation management with message history
+- ⚡ Redis caching with graceful degradation
+- 📊 Prometheus metrics & health checks
+- 🐳 Docker deployment ready
+- 🔒 Production-grade security
 
-- ✅ **Secure Authentication** - JWT-based auth with refresh tokens
-- ✅ **AI Integration** - OpenRouter API for multiple AI models
-- ✅ **Real-time Chat** - Conversation management with message history
-- ✅ **Rate Limiting** - Redis-backed rate limiting
-- ✅ **Monitoring** - Prometheus metrics and Winston logging
-- ✅ **Dark Mode** - Theme switching support
-- ✅ **Type Safety** - Full TypeScript coverage
-- ✅ **Production Ready** - Docker, CI/CD, health checks
+---
 
-## 📋 Prerequisites
+## 🚀 Quick Start
 
-- Node.js >= 18.0.0
-- npm >= 9.0.0
-- Docker & Docker Compose (optional)
-- PostgreSQL 16+ (if running locally)
-- Redis 7+ (if running locally)
+### Prerequisites
 
-## 🛠️ Installation
+- Node.js 18+
+- PostgreSQL 14+
+- Redis 7+
+- At least one AI provider API key
 
-### Option 1: Docker (Recommended)
+### Local Development
 
 ```bash
 # Clone repository
 git clone https://github.com/rajeevrajora77-lab/air.ai.git
 cd air.ai
 
-# Setup environment variables
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
+# Backend setup
+cd backend
+cp .env.example .env
+# Edit .env with your credentials
+npm install
+npm run migrate
+npm run dev
 
-# Edit backend/.env and add:
-# - Your OpenRouter API key
-# - Generate JWT secrets: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+# Frontend setup (new terminal)
+cd frontend
+npm install
+npm run dev
+```
 
-# Start with Docker
+### Docker Deployment
+
+```bash
+# Create .env file
+cp .env.example .env
+# Edit .env with production values
+
+# Start all services
 docker-compose up -d
 
-# Run migrations
-docker exec -it air-backend npm run migrate
+# Check status
+docker-compose ps
+
+# View logs
+docker-compose logs -f backend
 ```
 
-### Option 2: Local Development
+---
+
+## 🔧 Configuration
+
+### Required Environment Variables
 
 ```bash
-# Clone repository
-git clone https://github.com/rajeevrajora77-lab/air.ai.git
-cd air.ai
+# Database
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
 
-# Setup environment
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
+# Redis
+REDIS_URL=redis://host:6379
 
-# Start PostgreSQL and Redis (Docker)
-docker-compose up -d postgres redis
+# JWT Secrets (generate with: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))")
+JWT_SECRET=<64-char-random-string>
+JWT_REFRESH_SECRET=<64-char-different-random-string>
 
-# Install dependencies
-cd backend && npm install
-cd ../frontend && npm install
-
-# Run migrations
-cd ../backend && npm run migrate
-
-# Start development servers
-cd backend && npm run dev    # Terminal 1
-cd frontend && npm run dev   # Terminal 2
+# AI Provider (at least one)
+OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
-## 🌐 Access Points
+### Optional AI Providers
 
-- **Frontend**: http://localhost:5173 (dev) or http://localhost:3000 (docker)
-- **Backend API**: http://localhost:5000/api/v1
-- **Health Check**: http://localhost:5000/api/v1/health
-- **Metrics**: http://localhost:5000/api/v1/metrics
+- **OpenRouter** (recommended): Access to 100+ models
+- **OpenAI**: GPT-4, GPT-3.5
+- **Anthropic**: Claude 3 Opus/Sonnet/Haiku
+- **Google AI**: Gemini Pro
+- **Cohere, Mistral, Groq, Together AI, Replicate, HuggingFace**
 
-## 📚 API Documentation
+See `.env.example` for all options.
 
-### Authentication
+---
 
-```bash
-# Register
-POST /api/v1/auth/register
-{
-  "email": "user@example.com",
-  "password": "SecurePass123!",
-  "firstName": "John",
-  "lastName": "Doe"
-}
-
-# Login
-POST /api/v1/auth/login
-{
-  "email": "user@example.com",
-  "password": "SecurePass123!"
-}
-
-# Refresh Token
-POST /api/v1/auth/refresh
-{
-  "refreshToken": "your-refresh-token"
-}
-```
-
-### Conversations
-
-```bash
-# Create conversation
-POST /api/v1/conversations
-Authorization: Bearer <token>
-{
-  "title": "My Chat"
-}
-
-# Send message
-POST /api/v1/conversations/:id/messages
-Authorization: Bearer <token>
-{
-  "content": "Hello AI!",
-  "model": "openai/gpt-3.5-turbo"
-}
-
-# List conversations
-GET /api/v1/conversations
-Authorization: Bearer <token>
-```
-
-## 🏗️ Project Structure
+## 📁 Project Structure
 
 ```
 air.ai/
 ├── backend/
 │   ├── src/
-│   │   ├── config/          # Configuration
-│   │   ├── controllers/     # Route controllers
-│   │   ├── database/        # DB connections & migrations
-│   │   ├── middleware/      # Express middleware
-│   │   ├── routes/          # API routes
-│   │   ├── services/        # Business logic
-│   │   ├── utils/           # Utilities
-│   │   ├── validators/      # Zod schemas
-│   │   ├── app.ts          # Express app
-│   │   └── server.ts       # Entry point
-│   ├── Dockerfile
-│   ├── package.json
-│   └── tsconfig.json
+│   │   ├── controllers/      # Request handlers
+│   │   ├── services/         # Business logic
+│   │   ├── middleware/       # Auth, validation, rate limiting
+│   │   ├── routes/           # API routes
+│   │   ├── database/         # Postgres & Redis clients
+│   │   ├── validators/       # Zod schemas
+│   │   ├── utils/            # Errors, logger, metrics
+│   │   ├── app.ts            # Express app
+│   │   ├── server.ts         # Server startup
+│   │   └── config/           # Configuration
+│   ├── scripts/              # Migration scripts
+│   └── Dockerfile
+│
 ├── frontend/
 │   ├── src/
-│   │   ├── components/      # React components
-│   │   ├── hooks/          # Custom hooks
-│   │   ├── lib/            # API client & utils
-│   │   ├── stores/         # Zustand stores
-│   │   ├── types/          # TypeScript types
-│   │   ├── App.tsx         # Main app
-│   │   └── main.tsx        # Entry point
-│   ├── Dockerfile
-│   ├── package.json
-│   └── vite.config.ts
+│   │   ├── components/       # React components
+│   │   ├── stores/           # Zustand state
+│   │   ├── hooks/            # Custom hooks
+│   │   ├── lib/              # API client
+│   │   └── App.tsx
+│   ├── nginx.conf
+│   └── Dockerfile
+│
 └── docker-compose.yml
 ```
+
+---
+
+## 🔐 Security Features
+
+- ✅ **Token versioning** - Immediate token invalidation on password change
+- ✅ **Rate limiting** - Protection against brute-force attacks
+- ✅ **Helmet.js** - Security headers
+- ✅ **CORS** - Configurable origin
+- ✅ **Bcrypt** - Password hashing (12 rounds)
+- ✅ **Request timeout** - 30-second limit
+- ✅ **SQL injection protection** - Parameterized queries
+- ✅ **XSS protection** - Content Security Policy
+
+---
+
+## 📊 API Endpoints
+
+### Authentication
+- `POST /api/v1/auth/register` - Create account
+- `POST /api/v1/auth/login` - Login
+- `POST /api/v1/auth/refresh` - Refresh tokens
+- `POST /api/v1/auth/logout` - Logout
+- `POST /api/v1/auth/change-password` - Change password
+
+### Users
+- `GET /api/v1/users/me` - Get profile
+- `PATCH /api/v1/users/me` - Update profile
+- `GET /api/v1/users/me/stats` - Get usage stats
+- `GET /api/v1/users` - List users (admin)
+
+### Conversations
+- `POST /api/v1/conversations` - Create conversation
+- `GET /api/v1/conversations` - List conversations
+- `GET /api/v1/conversations/:id` - Get conversation
+- `PATCH /api/v1/conversations/:id` - Update conversation
+- `DELETE /api/v1/conversations/:id` - Delete conversation
+- `GET /api/v1/conversations/:id/messages` - Get messages
+- `POST /api/v1/conversations/:id/messages` - Send message
+
+### Monitoring
+- `GET /api/v1/health` - Health check
+- `GET /api/v1/metrics` - Prometheus metrics
+- `GET /ping` - Simple ping
+
+---
 
 ## 🧪 Testing
 
 ```bash
-# Backend tests
+# Backend
 cd backend
-npm test
-npm run test:watch
+npm run test
 npm run test:coverage
-
-# Linting
 npm run lint
-npm run lint:fix
+npm run typecheck
+
+# Frontend
+cd frontend
+npm run test
+npm run lint
+npm run type-check
 ```
-
-## 🚀 Deployment
-
-### Environment Variables (Production)
-
-**Backend:**
-- `NODE_ENV=production`
-- `DATABASE_URL` - PostgreSQL connection string
-- `REDIS_URL` - Redis connection string
-- `JWT_SECRET` - Strong secret (64+ chars)
-- `JWT_REFRESH_SECRET` - Different strong secret
-- `OPENROUTER_API_KEY` - Your API key
-- `CORS_ORIGIN` - Frontend URL
-
-**Frontend:**
-- `VITE_API_BASE_URL` - Backend API URL
-
-### Docker Production
-
-```bash
-# Build and push images
-docker-compose build
-docker tag air-backend your-registry/air-backend:latest
-docker tag air-frontend your-registry/air-frontend:latest
-docker push your-registry/air-backend:latest
-docker push your-registry/air-frontend:latest
-
-# Deploy
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-## 📊 Monitoring
-
-- **Health Check**: `GET /api/v1/health`
-- **Prometheus Metrics**: `GET /api/v1/metrics`
-- **Logs**: `backend/logs/` directory
-
-## 🔒 Security Features
-
-- JWT authentication with refresh tokens
-- Password hashing with bcrypt
-- Rate limiting (Redis-backed)
-- Helmet.js security headers
-- CORS protection
-- Input validation (Zod)
-- SQL injection prevention (parameterized queries)
-- XSS protection
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing`)
-5. Open Pull Request
-
-## 📝 License
-
-MIT License - see LICENSE file
-
-## 👨‍💻 Author
-
-**Rajeev Rajora**
-- GitHub: [@rajeevrajora77-lab](https://github.com/rajeevrajora77-lab)
-
-## 🙏 Acknowledgments
-
-- OpenRouter for AI API
-- All open-source contributors
 
 ---
 
-**Built with ❤️ using TypeScript, React, Node.js, PostgreSQL, and Redis**
+## 📈 Monitoring
+
+### Health Check
+```bash
+curl http://localhost:5000/api/v1/health
+```
+
+### Metrics (Prometheus)
+```bash
+curl http://localhost:5000/api/v1/metrics
+```
+
+Metrics include:
+- HTTP request duration
+- Active connections
+- AI request latency
+- Database query performance
+
+---
+
+## 🐛 Troubleshooting
+
+### App won't start
+```bash
+# Check environment variables
+cat backend/.env
+
+# Test database connection
+psql $DATABASE_URL
+
+# Test Redis connection
+redis-cli -u $REDIS_URL ping
+```
+
+### TypeScript errors
+```bash
+cd backend
+npm run typecheck
+```
+
+### Migration issues
+```bash
+cd backend
+npm run migrate:rollback
+npm run migrate
+```
+
+---
+
+## 📝 License
+
+MIT
+
+---
+
+## 🙏 Acknowledgments
+
+- OpenRouter for multi-model API access
+- All the amazing open-source packages used
+
+---
+
+**Status:** ✅ Production Ready
+
+**Last Audit:** February 12, 2026

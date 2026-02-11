@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
@@ -15,19 +15,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache dumb-init
+ENV NODE_ENV=production
 
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --only=production
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/database/migrations ./dist/database/migrations
-
-RUN mkdir -p logs && chown -R node:node /app
-
-USER node
+COPY scripts ./scripts
+COPY src/database/migrations ./src/database/migrations
 
 EXPOSE 5000
 
-ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/server.js"]
+CMD ["sh", "-c", "npm run migrate && node dist/server.js"]
