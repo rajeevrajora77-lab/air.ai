@@ -1,7 +1,6 @@
-import axios from 'axios';
 import { db } from '../database/postgres';
 import { redis } from '../database/redis';
-import config from '../config';
+import { aiService } from './ai.service';
 import logger from '../utils/logger';
 import { NotFoundError, ValidationError, AuthorizationError } from '../utils/errors';
 import { aiRequestDuration } from '../utils/metrics';
@@ -29,12 +28,10 @@ interface Message {
 interface CreateMessageData {
   content: string;
   model?: string;
+  provider?: string;
 }
 
 export class ConversationService {
-  private readonly OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-  private readonly DEFAULT_MODEL = 'openai/gpt-3.5-turbo';
-
   async createConversation(userId: string, title: string): Promise<Conversation> {
     const result = await db.query<Conversation>(
       `INSERT INTO conversations (user_id, title)
@@ -44,7 +41,9 @@ export class ConversationService {
     );
 
     // Clear stats cache
-    await redis.del(`user:stats:${userId}`);
+    if (redis.isHealthy()) {
+      await redis.del(`user:stats:${userId}`);
+    }
 
     logger.info('Conversation created:', result.rows[0].id);
 
@@ -78,23 +77,34 @@ export class ConversationService {
   ): Promise<{ conversations: Conversation[]; total: number }> {
     const { includeArchived = false, limit = 20, offset = 0 } = options;
 
-    const whereClause = includeArchived
-      ? 'user_id = $1'
-      : 'user_id = $1 AND is_archived = false';
-
+    // Safe parameterized queries
     const [dataResult, countResult] = await Promise.all([
-      db.query<Conversation>(
-        `SELECT id, user_id, title, is_archived, created_at, updated_at
-         FROM conversations
-         WHERE ${whereClause}
-         ORDER BY updated_at DESC
-         LIMIT $2 OFFSET $3`,
-        [userId, limit, offset]
-      ),
-      db.query<{ count: string }>(
-        `SELECT COUNT(*) as count FROM conversations WHERE ${whereClause}`,
-        [userId]
-      ),
+      includeArchived
+        ? db.query<Conversation>(
+            `SELECT id, user_id, title, is_archived, created_at, updated_at
+             FROM conversations
+             WHERE user_id = $1
+             ORDER BY updated_at DESC
+             LIMIT $2 OFFSET $3`,
+            [userId, limit, offset]
+          )
+        : db.query<Conversation>(
+            `SELECT id, user_id, title, is_archived, created_at, updated_at
+             FROM conversations
+             WHERE user_id = $1 AND is_archived = false
+             ORDER BY updated_at DESC
+             LIMIT $2 OFFSET $3`,
+            [userId, limit, offset]
+          ),
+      includeArchived
+        ? db.query<{ count: string }>(
+            `SELECT COUNT(*) as count FROM conversations WHERE user_id = $1`,
+            [userId]
+          )
+        : db.query<{ count: string }>(
+            `SELECT COUNT(*) as count FROM conversations WHERE user_id = $1 AND is_archived = false`,
+            [userId]
+          ),
     ]);
 
     return {
@@ -151,12 +161,16 @@ export class ConversationService {
     await this.getConversation(conversationId, userId);
 
     await db.transaction(async (client) => {
-      // Delete conversation (cascades to messages)
+      // Delete messages first (if no CASCADE)
+      await client.query('DELETE FROM messages WHERE conversation_id = $1', [conversationId]);
+      // Delete conversation
       await client.query('DELETE FROM conversations WHERE id = $1', [conversationId]);
     });
 
     // Clear stats cache
-    await redis.del(`user:stats:${userId}`);
+    if (redis.isHealthy()) {
+      await redis.del(`user:stats:${userId}`);
+    }
 
     logger.info('Conversation deleted:', conversationId);
   }
@@ -177,11 +191,11 @@ export class ConversationService {
     const params: any[] = [conversationId];
 
     if (before) {
-      query += ' AND created_at < $2';
+      query += ` AND created_at < $${params.length + 1}`;
       params.push(before);
     }
 
-    query += ' ORDER BY created_at ASC LIMIT $' + (params.length + 1);
+    query += ` ORDER BY created_at ASC LIMIT $${params.length + 1}`;
     params.push(limit);
 
     const result = await db.query<Message>(query, params);
@@ -200,101 +214,81 @@ export class ConversationService {
     // Get conversation history
     const history = await this.getMessages(conversationId, userId, { limit: 10 });
 
-    // Save user message
-    const userMessageResult = await db.query<Message>(
-      `INSERT INTO messages (conversation_id, role, content)
-       VALUES ($1, $2, $3)
-       RETURNING id, conversation_id, role, content, tokens_used, model, metadata, created_at`,
-      [conversationId, 'user', data.content]
-    );
-
-    const userMessage = userMessageResult.rows[0];
-
-    // Call AI API
-    const startTime = Date.now();
-    try {
-      const aiResponse = await this.callAI(history, data.content, data.model);
-      const duration = (Date.now() - startTime) / 1000;
-      aiRequestDuration.observe({ model: aiResponse.model, status: 'success' }, duration);
-
-      // Save assistant message
-      const assistantMessageResult = await db.query<Message>(
-        `INSERT INTO messages (conversation_id, role, content, tokens_used, model, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6)
+    // Use transaction to ensure atomicity
+    return await db.transaction(async (client) => {
+      // Save user message first
+      const userMessageResult = await client.query<Message>(
+        `INSERT INTO messages (conversation_id, role, content)
+         VALUES ($1, $2, $3)
          RETURNING id, conversation_id, role, content, tokens_used, model, metadata, created_at`,
-        [
-          conversationId,
-          'assistant',
-          aiResponse.content,
-          aiResponse.tokensUsed,
-          aiResponse.model,
-          aiResponse.metadata,
-        ]
+        [conversationId, 'user', data.content]
       );
 
-      const assistantMessage = assistantMessageResult.rows[0];
+      const userMessage = userMessageResult.rows[0];
 
-      // Update conversation updated_at
-      await db.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [
-        conversationId,
-      ]);
+      // Call AI service (outside transaction to avoid long-running transaction)
+      // If this fails, user message is saved but we throw error
+      // Client can retry and we'll have the user message in history
+      const startTime = Date.now();
+      try {
+        const messages = [
+          ...history.map((m) => ({ role: m.role, content: m.content })),
+          { role: 'user' as const, content: data.content },
+        ];
 
-      // Clear stats cache
-      await redis.del(`user:stats:${userId}`);
-
-      logger.info('Messages created in conversation:', conversationId);
-
-      return { userMessage, assistantMessage };
-    } catch (error) {
-      const duration = (Date.now() - startTime) / 1000;
-      aiRequestDuration.observe(
-        { model: data.model || this.DEFAULT_MODEL, status: 'error' },
-        duration
-      );
-      throw error;
-    }
-  }
-
-  private async callAI(
-    history: Message[],
-    userMessage: string,
-    model?: string
-  ): Promise<{ content: string; tokensUsed: number; model: string; metadata: any }> {
-    const messages = [
-      ...history.map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user', content: userMessage },
-    ];
-
-    try {
-      const response = await axios.post(
-        this.OPENROUTER_URL,
-        {
-          model: model || this.DEFAULT_MODEL,
+        const aiResponse = await aiService.chat(
           messages,
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${config.OPENROUTER_API_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://air.ai',
-            'X-Title': 'air.ai',
-          },
-          timeout: 30000,
+          data.provider as any,
+          data.model
+        );
+
+        const duration = (Date.now() - startTime) / 1000;
+        aiRequestDuration.observe(
+          { model: aiResponse.model, status: 'success' },
+          duration
+        );
+
+        // Save assistant message
+        const assistantMessageResult = await client.query<Message>(
+          `INSERT INTO messages (conversation_id, role, content, tokens_used, model, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, conversation_id, role, content, tokens_used, model, metadata, created_at`,
+          [
+            conversationId,
+            'assistant',
+            aiResponse.content,
+            aiResponse.tokensUsed,
+            aiResponse.model,
+            JSON.stringify({ provider: aiResponse.provider, finishReason: aiResponse.finishReason }),
+          ]
+        );
+
+        const assistantMessage = assistantMessageResult.rows[0];
+
+        // Update conversation updated_at
+        await client.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [
+          conversationId,
+        ]);
+
+        // Clear stats cache
+        if (redis.isHealthy()) {
+          await redis.del(`user:stats:${userId}`);
         }
-      );
 
-      const { choices, usage, model: responseModel } = response.data;
+        logger.info('Messages created in conversation:', conversationId);
 
-      return {
-        content: choices[0].message.content,
-        tokensUsed: usage?.total_tokens || 0,
-        model: responseModel,
-        metadata: { usage, finish_reason: choices[0].finish_reason },
-      };
-    } catch (error: any) {
-      logger.error('AI API error:', error.response?.data || error.message);
-      throw new ValidationError('Failed to get AI response');
-    }
+        return { userMessage, assistantMessage };
+      } catch (error) {
+        const duration = (Date.now() - startTime) / 1000;
+        aiRequestDuration.observe(
+          { model: data.model || 'unknown', status: 'error' },
+          duration
+        );
+        
+        logger.error('AI service error:', error);
+        throw new ValidationError('Failed to get AI response. Your message was saved.');
+      }
+    });
   }
 }
 
