@@ -1,46 +1,49 @@
 {
   "name": "air.ai",
   "version": "1.0.0",
-  "description": "Production-ready AI chat platform with authentication and conversation management",
   "private": true,
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
+  "description": "AI-Powered Chat Application",
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:frontend": "cd frontend && npm run dev",
-    "dev:backend": "cd backend && npm run dev",
-    "build": "npm run build:frontend && npm run build:backend",
-    "build:frontend": "cd frontend && npm run build",
-    "build:backend": "cd backend && npm run build",
-    "test": "npm run test:frontend && npm run test:backend",
-    "test:frontend": "cd frontend && npm test",
-    "test:backend": "cd backend && npm test",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
-    "clean": "rm -rf node_modules frontend/node_modules backend/node_modules frontend/dist backend/dist"
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "build:backend": "npm run build --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "build": "npm run build:backend && npm run build:frontend",
+    "test:backend": "npm test --prefix backend",
+    "test:frontend": "npm test --prefix frontend",
+    "test": "npm run test:backend",
+    "lint:backend": "npm run lint --prefix backend",
+    "lint:frontend": "npm run lint --prefix frontend",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "migrate": "npm run migrate --prefix backend",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:build": "docker-compose build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
   },
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rajeevrajora77-lab/air.ai.git"
   },
   "keywords": [
     "ai",
     "chat",
-    "react",
+    "openrouter",
     "typescript",
-    "express",
-    "postgresql",
-    "redis",
-    "full-stack"
+    "react",
+    "nodejs"
   ],
   "author": "Rajeev Rajora",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/rajeevrajora77-lab/air.ai.git"
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }
