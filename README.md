@@ -2,6 +2,11 @@
 
 **Production-Ready Full-Stack Application**
 
+[![CI/CD](https://github.com/rajeevrajora77-lab/air.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/rajeevrajora77-lab/air.ai/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-green)](https://nodejs.org/)
+
 - 🤖 Multi-provider AI integration (10+ providers)
 - 🔐 Secure authentication with JWT + token versioning
 - 💬 Conversation management with message history
@@ -9,6 +14,31 @@
 - 📊 Prometheus metrics & health checks
 - 🐳 Docker deployment ready
 - 🔒 Production-grade security
+
+---
+
+## 🚀 Quick Links
+
+- [Deployment Guide](docs/DEPLOYMENT.md) - Deploy to Vercel + Railway (free)
+- [API Documentation](#-api-endpoints)
+- [Architecture](#-project-structure)
+- [Security Features](#-security-features)
+
+---
+
+## 📸 Screenshots
+
+> **Coming Soon:** Screenshots will be added after deployment
+
+**For now, you can:**
+1. Run locally (see Quick Start below)
+2. Or deploy to free tier ([Deployment Guide](docs/DEPLOYMENT.md))
+
+Planned screenshots:
+- Login/Register interface
+- Chat interface with AI responses
+- Conversation history
+- Settings panel
 
 ---
 
@@ -42,6 +72,8 @@ npm install
 npm run dev
 ```
 
+Open [http://localhost:5173](http://localhost:5173)
+
 ### Docker Deployment
 
 ```bash
@@ -58,6 +90,8 @@ docker-compose ps
 # View logs
 docker-compose logs -f backend
 ```
+
+**Want to deploy to cloud?** See [Deployment Guide](docs/DEPLOYMENT.md)
 
 ---
 
@@ -92,7 +126,7 @@ See `.env.example` for all options.
 
 ---
 
-## 📁 Project Structure
+## 📚 Project Structure
 
 ```
 air.ai/
@@ -187,6 +221,8 @@ npm run lint
 npm run type-check
 ```
 
+**CI/CD:** Tests run automatically on every push via GitHub Actions
+
 ---
 
 ## 📈 Monitoring
@@ -244,13 +280,34 @@ MIT
 
 ---
 
+## 👥 Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+---
+
+## 🚀 Deployment Status
+
+**Current:** Development  
+**Next:** Deploy to production ([Guide](docs/DEPLOYMENT.md))  
+**Last Audit:** February 12, 2026
+
+---
+
+## 👨‍💻 Author
+
+**Rajeev Rajora**  
+GitHub: [@rajeevrajora77-lab](https://github.com/rajeevrajora77-lab)  
+Email: rajeev.rajora.77@gmail.com
+
+---
+
 ## 🙏 Acknowledgments
 
 - OpenRouter for multi-model API access
 - All the amazing open-source packages used
-
----
-
-**Status:** ✅ Production Ready
-
-**Last Audit:** February 12, 2026
