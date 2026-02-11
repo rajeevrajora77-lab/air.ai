@@ -1,24 +1,28 @@
 import { db } from '../database/postgres';
 import { redis } from '../database/redis';
-import { NotFoundError, ConflictError } from '../utils/errors';
 import logger from '../utils/logger';
+import { NotFoundError } from '../utils/errors';
 
 interface User {
   id: string;
   email: string;
-  firstname: string;
-  lastname: string;
+  first_name: string;
+  last_name: string;
   role: string;
-  isactive: boolean;
-  isverified: boolean;
-  createdat: Date;
-  updatedat: Date;
+  is_active: boolean;
+  is_verified: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface UserStats {
+  totalConversations: number;
+  totalMessages: number;
+  tokensUsed: number;
 }
 
 export class UserService {
-  private readonly CACHE_TTL = 300; // 5 minutes
-
-  async getProfile(userId: string): Promise<User> {
+  async getUserById(userId: string): Promise<User> {
     // Try cache first
     const cached = await redis.get<User>(`user:${userId}`);
     if (cached) {
@@ -26,7 +30,7 @@ export class UserService {
     }
 
     const result = await db.query<User>(
-      `SELECT id, email, firstname, lastname, role, isactive, isverified, createdat, updatedat
+      `SELECT id, email, first_name, last_name, role, is_active, is_verified, created_at, updated_at
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -37,54 +41,43 @@ export class UserService {
 
     const user = result.rows[0];
 
-    // Cache user profile
-    await redis.set(`user:${userId}`, user, this.CACHE_TTL);
+    // Cache for 5 minutes
+    await redis.set(`user:${userId}`, user, 300);
 
     return user;
   }
 
   async updateProfile(
     userId: string,
-    data: { firstName?: string; lastName?: string; email?: string }
+    updates: { firstName?: string; lastName?: string }
   ): Promise<User> {
-    const { firstName, lastName, email } = data;
-
-    // Check if email is already taken
-    if (email) {
-      const existing = await db.query(
-        'SELECT id FROM users WHERE email = $1 AND id != $2',
-        [email.toLowerCase(), userId]
-      );
-
-      if (existing.rows.length > 0) {
-        throw new ConflictError('Email already in use');
-      }
-    }
-
-    const updates: string[] = [];
+    const fields: string[] = [];
     const values: any[] = [];
-    let paramCount = 1;
+    let paramIndex = 1;
 
-    if (firstName) {
-      updates.push(`firstname = $${paramCount++}`);
-      values.push(firstName);
-    }
-    if (lastName) {
-      updates.push(`lastname = $${paramCount++}`);
-      values.push(lastName);
-    }
-    if (email) {
-      updates.push(`email = $${paramCount++}`);
-      values.push(email.toLowerCase());
+    if (updates.firstName) {
+      fields.push(`first_name = $${paramIndex}`);
+      values.push(updates.firstName);
+      paramIndex++;
     }
 
-    updates.push('updatedat = NOW()');
+    if (updates.lastName) {
+      fields.push(`last_name = $${paramIndex}`);
+      values.push(updates.lastName);
+      paramIndex++;
+    }
+
+    if (fields.length === 0) {
+      return this.getUserById(userId);
+    }
+
     values.push(userId);
 
     const result = await db.query<User>(
-      `UPDATE users SET ${updates.join(', ')}
-       WHERE id = $${paramCount}
-       RETURNING id, email, firstname, lastname, role, isactive, isverified, createdat, updatedat`,
+      `UPDATE users
+       SET ${fields.join(', ')}, updated_at = NOW()
+       WHERE id = $${paramIndex}
+       RETURNING id, email, first_name, last_name, role, is_active, is_verified, created_at, updated_at`,
       values
     );
 
@@ -94,54 +87,57 @@ export class UserService {
 
     const user = result.rows[0];
 
-    // Invalidate cache
-    await redis.del(`user:${userId}`);
+    // Update cache
+    await redis.set(`user:${userId}`, user, 300);
 
     logger.info('User profile updated:', userId);
 
     return user;
   }
 
-  async deleteAccount(userId: string): Promise<void> {
+  async getUserStats(userId: string): Promise<UserStats> {
+    // Try cache first
+    const cached = await redis.get<UserStats>(`user:stats:${userId}`);
+    if (cached) {
+      return cached;
+    }
+
+    const result = await db.query(
+      `SELECT 
+        (SELECT COUNT(*) FROM conversations WHERE user_id = $1) as total_conversations,
+        (SELECT COUNT(*) FROM messages m 
+         JOIN conversations c ON m.conversation_id = c.id 
+         WHERE c.user_id = $1) as total_messages,
+        (SELECT COALESCE(SUM(tokens_used), 0) FROM messages m
+         JOIN conversations c ON m.conversation_id = c.id
+         WHERE c.user_id = $1) as tokens_used`,
+      [userId]
+    );
+
+    const stats: UserStats = {
+      totalConversations: parseInt(result.rows[0].total_conversations),
+      totalMessages: parseInt(result.rows[0].total_messages),
+      tokensUsed: parseInt(result.rows[0].tokens_used),
+    };
+
+    // Cache for 1 minute
+    await redis.set(`user:stats:${userId}`, stats, 60);
+
+    return stats;
+  }
+
+  async deleteUser(userId: string): Promise<void> {
     await db.transaction(async (client) => {
-      // Delete user (cascade will delete conversations and messages)
+      // Delete user (cascades to conversations and messages)
       await client.query('DELETE FROM users WHERE id = $1', [userId]);
     });
 
     // Clear cache
     await redis.del(`user:${userId}`);
+    await redis.del(`user:stats:${userId}`);
     await redis.del(`refresh:${userId}`);
 
-    logger.info('User account deleted:', userId);
-  }
-
-  async getUserStats(userId: string): Promise<{
-    totalConversations: number;
-    totalMessages: number;
-    accountAge: number;
-  }> {
-    const cacheKey = `stats:${userId}`;
-    const cached = await redis.get<any>(cacheKey);
-    if (cached) return cached;
-
-    const result = await db.query(
-      `SELECT
-         (SELECT COUNT(*) FROM conversations WHERE userid = $1) as totalconversations,
-         (SELECT COUNT(*) FROM messages m JOIN conversations c ON m.conversationid = c.id WHERE c.userid = $1) as totalmessages,
-         EXTRACT(DAY FROM NOW() - (SELECT createdat FROM users WHERE id = $1)) as accountage`,
-      [userId]
-    );
-
-    const stats = {
-      totalConversations: parseInt(result.rows[0].totalconversations),
-      totalMessages: parseInt(result.rows[0].totalmessages),
-      accountAge: parseInt(result.rows[0].accountage),
-    };
-
-    // Cache for 1 hour
-    await redis.set(cacheKey, stats, 3600);
-
-    return stats;
+    logger.info('User deleted:', userId);
   }
 }
 
