@@ -11,12 +11,12 @@ interface User {
   id: string;
   email: string;
   password: string;
-  firstname: string;
-  lastname: string;
+  first_name: string;
+  last_name: string;
   role: string;
-  isactive: boolean;
-  isverified: boolean;
-  createdat: Date;
+  is_active: boolean;
+  is_verified: boolean;
+  created_at: Date;
 }
 
 interface TokenPair {
@@ -81,9 +81,9 @@ export class AuthService {
     // Create user in transaction
     const result = await db.transaction(async (client) => {
       const userResult = await client.query<User>(
-        `INSERT INTO users (email, password, firstname, lastname, role)
+        `INSERT INTO users (email, password, first_name, last_name, role)
          VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, email, firstname, lastname, role, isactive, isverified, createdat`,
+         RETURNING id, email, first_name, last_name, role, is_active, is_verified, created_at`,
         [email.toLowerCase(), hashedPassword, firstName, lastName, 'user']
       );
       return userResult.rows[0];
@@ -106,7 +106,7 @@ export class AuthService {
   async login(email: string, password: string): Promise<AuthResponse> {
     // Get user with password
     const result = await db.query<User>(
-      `SELECT id, email, password, firstname, lastname, role, isactive, isverified, createdat
+      `SELECT id, email, password, first_name, last_name, role, is_active, is_verified, created_at
        FROM users WHERE email = $1`,
       [email.toLowerCase()]
     );
@@ -117,7 +117,7 @@ export class AuthService {
     }
 
     // Check if account is active
-    if (!user.isactive) {
+    if (!user.is_active) {
       throw new AuthenticationError('Account has been deactivated');
     }
 
@@ -164,12 +164,12 @@ export class AuthService {
 
       // Get user
       const result = await db.query<User>(
-        'SELECT id, email, role, isactive FROM users WHERE id = $1',
+        'SELECT id, email, role, is_active FROM users WHERE id = $1',
         [decoded.id]
       );
 
       const user = result.rows[0];
-      if (!user || !user.isactive) {
+      if (!user || !user.is_active) {
         throw new AuthenticationError('User not found or inactive');
       }
 
@@ -232,7 +232,7 @@ export class AuthService {
 
     // Update password
     await db.query(
-      'UPDATE users SET password = $1, updatedat = NOW() WHERE id = $2',
+      'UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2',
       [hashedPassword, userId]
     );
 
@@ -251,7 +251,10 @@ export class AuthService {
 
     const refreshToken = this.generateRefreshToken(user.id);
 
-    return { accessToken, refreshToken };
+    return {
+      accessToken,
+      refreshToken,
+    };
   }
 
   private async cacheUserSession(userId: string, refreshToken: string): Promise<void> {
