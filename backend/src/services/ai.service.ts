@@ -31,12 +31,17 @@ export type AIProvider =
 class AIService {
   private clients: Map<AIProvider, AxiosInstance> = new Map();
   private availableProviders: AIProvider[] = [];
+  private isInitialized = false;
 
   constructor() {
-    this.initializeProviders();
+    // Lazy initialization - will be called by server.ts
   }
 
-  private initializeProviders(): void {
+  initialize(): void {
+    if (this.isInitialized) {
+      return;
+    }
+
     // OpenRouter - Universal gateway to 100+ models
     if (config.OPENROUTER_API_KEY) {
       this.clients.set('openrouter', axios.create({
@@ -181,21 +186,28 @@ class AIService {
       throw new Error('At least one AI provider API key must be configured');
     }
 
+    this.isInitialized = true;
     logger.info(`🤖 Initialized ${this.availableProviders.length} AI providers: ${this.availableProviders.join(', ')}`);
   }
 
   async chat(
     messages: AIMessage[],
-    provider: AIProvider = this.availableProviders[0],
+    provider?: AIProvider,
     model?: string
   ): Promise<AIResponse> {
-    const client = this.clients.get(provider);
+    if (!this.isInitialized) {
+      throw new AIServiceError('AI service not initialized', 'system');
+    }
+
+    const selectedProvider = provider || this.availableProviders[0];
+    const client = this.clients.get(selectedProvider);
+    
     if (!client) {
-      throw new AIServiceError(`Provider ${provider} not configured`, provider);
+      throw new AIServiceError(`Provider ${selectedProvider} not configured`, selectedProvider);
     }
 
     try {
-      switch (provider) {
+      switch (selectedProvider) {
         case 'openrouter':
           return await this.chatOpenRouter(client, messages, model);
         case 'openai':
@@ -217,13 +229,13 @@ class AIService {
         case 'huggingface':
           return await this.chatHuggingFace(client, messages, model);
         default:
-          throw new AIServiceError(`Unsupported provider: ${provider}`, provider);
+          throw new AIServiceError(`Unsupported provider: ${selectedProvider}`, selectedProvider);
       }
     } catch (error: any) {
-      logger.error(`${provider} API error:`, error.response?.data || error.message);
+      logger.error(`${selectedProvider} API error:`, error.response?.data || error.message);
       throw new AIServiceError(
         error.response?.data?.error?.message || error.message || 'AI service failed',
-        provider
+        selectedProvider
       );
     }
   }
@@ -404,6 +416,10 @@ class AIService {
 
   getDefaultProvider(): AIProvider {
     return this.availableProviders[0];
+  }
+
+  isReady(): boolean {
+    return this.isInitialized && this.availableProviders.length > 0;
   }
 }
 

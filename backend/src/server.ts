@@ -2,6 +2,7 @@ import app from './app';
 import config from './config';
 import { db } from './database/postgres';
 import { redis } from './database/redis';
+import { aiService } from './services/ai.service';
 import logger from './utils/logger';
 
 const PORT = config.PORT || 5000;
@@ -13,6 +14,10 @@ const startServer = async () => {
     // Connect to databases
     logger.info('🔄 Connecting to databases...');
     await Promise.all([db.connect(), redis.connect()]);
+
+    // Initialize AI service
+    logger.info('🔄 Initializing AI service...');
+    aiService.initialize();
 
     // Start server
     server = app.listen(PORT, () => {
