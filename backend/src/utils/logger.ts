@@ -52,7 +52,7 @@ export const logger = winston.createLogger({
   exitOnError: false,
 });
 
-// Stream for Morgan
+// Create a stream object for Morgan
 export const logStream = {
   write: (message: string) => {
     logger.info(message.trim());

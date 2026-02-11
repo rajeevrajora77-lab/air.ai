@@ -30,23 +30,14 @@ const envSchema = z.object({
   
   // Security
   BCRYPT_ROUNDS: z.string().transform(Number).default('12'),
-  CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  CORS_ORIGIN: z.string().url(),
   
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: z.string().transform(Number).default('900000'),
   RATE_LIMIT_MAX_REQUESTS: z.string().transform(Number).default('100'),
   
-  // AI API Keys (Optional - at least one required)
-  OPENROUTER_API_KEY: z.string().optional(),
-  OPENAI_API_KEY: z.string().optional(),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  GOOGLE_AI_API_KEY: z.string().optional(),
-  COHERE_API_KEY: z.string().optional(),
-  MISTRAL_API_KEY: z.string().optional(),
-  GROQ_API_KEY: z.string().optional(),
-  TOGETHER_API_KEY: z.string().optional(),
-  REPLICATE_API_KEY: z.string().optional(),
-  HUGGINGFACE_API_KEY: z.string().optional(),
+  // OpenRouter
+  OPENROUTER_API_KEY: z.string().min(10),
   
   // Monitoring
   SENTRY_DSN: z.string().url().optional(),
