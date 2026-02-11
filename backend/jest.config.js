@@ -9,13 +9,13 @@ module.exports = {
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
-    '!src/server.ts',
     '!src/**/*.test.ts',
-    '!src/**/__tests__/**',
+    '!src/**/*.spec.ts',
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
-  setupFilesAfterEnv: ['<rootDir>/src/tests/setup.ts'],
-  testTimeout: 10000,
+  moduleFileExtensions: ['ts', 'js', 'json'],
   verbose: true,
+  testTimeout: 10000,
+  setupFilesAfterEnv: ['<rootDir>/src/tests/setup.ts'],
 };
