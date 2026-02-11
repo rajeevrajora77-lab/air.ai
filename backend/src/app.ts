@@ -7,6 +7,7 @@ import config from './config';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { metricsMiddleware } from './middleware/metrics';
+import { requestTimeout } from './middleware/timeout.middleware';
 import { logStream } from './utils/logger';
 
 const app: Application = express();
@@ -45,6 +46,9 @@ if (config.NODE_ENV === 'production') {
 } else {
   app.use(morgan('dev'));
 }
+
+// Request timeout (30 seconds)
+app.use(requestTimeout(30000));
 
 // Metrics collection
 app.use(metricsMiddleware);
